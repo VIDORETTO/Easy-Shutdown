@@ -24,33 +24,6 @@ impl ActionKind {
         }
     }
 
-    pub fn icon_name(self) -> &'static str {
-        match self {
-            ActionKind::Shutdown => "power",
-            ActionKind::Restart => "rotate-cw",
-            ActionKind::Hibernate => "moon",
-            ActionKind::Sleep => "zap-off",
-            ActionKind::Lock => "lock",
-            ActionKind::Logoff => "log-out",
-        }
-    }
-
-    pub fn all() -> [ActionKind; 6] {
-        [
-            ActionKind::Shutdown,
-            ActionKind::Restart,
-            ActionKind::Hibernate,
-            ActionKind::Sleep,
-            ActionKind::Lock,
-            ActionKind::Logoff,
-        ]
-    }
-
-    /// Ações que aceitam flag "forçar" (mata processos teimosos)
-    pub fn supports_force(self) -> bool {
-        matches!(self, ActionKind::Shutdown | ActionKind::Restart)
-    }
-
     /// Converte string kebab-case ("shutdown") em ActionKind.
     pub fn from_kebab(s: &str) -> Option<ActionKind> {
         match s {
@@ -64,16 +37,6 @@ impl ActionKind {
         }
     }
 
-    pub fn to_kebab(self) -> &'static str {
-        match self {
-            ActionKind::Shutdown => "shutdown",
-            ActionKind::Restart => "restart",
-            ActionKind::Hibernate => "hibernate",
-            ActionKind::Sleep => "sleep",
-            ActionKind::Lock => "lock",
-            ActionKind::Logoff => "logoff",
-        }
-    }
 }
 
 /// Modo de agendamento.

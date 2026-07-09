@@ -14,14 +14,12 @@
     "core:window:allow-set-effects",
     "core:window:allow-theme",
     "core:window:allow-is-visible",
-    "core:webview:allow-internal-toggle-devtools",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-unregister-all",
     "notification:default",
     "autostart:default",
-    "store:default",
     "opener:default",
     "core:event:default"
   ]

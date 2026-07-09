@@ -135,7 +135,6 @@ pub fn start(app: &AppHandle, req: ScheduleRequest) -> Result<ActiveSchedule, St
 
 async fn run_tick_loop(app: AppHandle, info: ActiveSchedule, cancel: tokio_util::sync::CancellationToken) {
     let mut reminder_fired = false;
-    let mut wake_notified = false;
 
     loop {
         if cancel.is_cancelled() {
@@ -181,8 +180,7 @@ async fn run_tick_loop(app: AppHandle, info: ActiveSchedule, cancel: tokio_util:
         if remaining_ms <= 1000 {
             // Grace period: se o target passou há mais de 5s (PC estava dormindo),
             // notifica e espera 10s antes de executar, dando chance de cancelar.
-            if remaining_ms < -5000 && !wake_notified {
-                wake_notified = true;
+            if remaining_ms < -5000 {
                 let _ = app
                     .notification()
                     .builder()

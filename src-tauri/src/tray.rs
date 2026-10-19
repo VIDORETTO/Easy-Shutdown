@@ -14,7 +14,7 @@ use crate::state::AppState;
 use crate::types::{ActionKind, Source};
 use crate::window;
 
-const TRAY_ID: &str = "wise-tray";
+const TRAY_ID: &str = "easy-tray";
 const QUICK_MINUTES: [u64; 5] = [15, 30, 60, 120, 180];
 
 /// Itens do menu que mudam de estado em tempo de execução.
@@ -72,7 +72,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("Wise Auto Shutdown")
+        .tooltip("Easy Shutdown")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
@@ -91,7 +91,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 fn on_menu(app: &AppHandle, id: &str) {
     if let Some(minutes) = id.strip_prefix("qs-").and_then(|m| m.parse::<u64>().ok()) {
         match schedule::quick_timer(app, ActionKind::Shutdown, minutes) {
-            Ok(_) => notify(app, "Wise Auto Shutdown", format!("Desligamento agendado para daqui a {minutes} min.")),
+            Ok(_) => notify(app, "Easy Shutdown", format!("Desligamento agendado para daqui a {minutes} min.")),
             Err(e) => notify_error(app, e),
         }
         return;
@@ -105,12 +105,12 @@ fn on_menu(app: &AppHandle, id: &str) {
         "next-snooze" => {
             let Some(next) = schedule::next(app) else { return };
             match schedule::snooze(app, &next.task_id, 15) {
-                Ok(_) => notify(app, "Wise Auto Shutdown", format!("\"{}\" adiado em 15 min.", next.action.label_pt())),
+                Ok(_) => notify(app, "Easy Shutdown", format!("\"{}\" adiado em 15 min.", next.action.label_pt())),
                 Err(e) => notify_error(app, e),
             }
         }
         "next-cancel" => match schedule::cancel_next(app) {
-            Ok(Some(msg)) => notify(app, "Wise Auto Shutdown", msg),
+            Ok(Some(msg)) => notify(app, "Easy Shutdown", msg),
             Ok(None) => {}
             Err(e) => notify_error(app, e),
         },

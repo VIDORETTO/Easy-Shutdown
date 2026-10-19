@@ -10,9 +10,9 @@ fn main() {
             std::backtrace::Backtrace::force_capture()
         );
         let log_path = std::env::temp_dir()
-            .join(format!("wise-auto-shutdown-panic-{}.log", user));
+            .join(format!("easy-shutdown-panic-{}.log", user));
         let _ = std::fs::write(&log_path, &msg);
     }));
 
-    wise_auto_shutdown_lib::run();
+    easy_shutdown_lib::run();
 }

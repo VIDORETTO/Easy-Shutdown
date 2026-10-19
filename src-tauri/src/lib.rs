@@ -1,4 +1,4 @@
-//! Wise Auto Shutdown — lib principal (builder do Tauri).
+//! Easy Shutdown — lib principal (builder do Tauri).
 
 mod actions;
 mod commands;
@@ -26,7 +26,7 @@ const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
 fn init_logging(app: &AppHandle) {
     let file = app.path().app_log_dir().ok().and_then(|dir| {
         std::fs::create_dir_all(&dir).ok()?;
-        let path = dir.join("wise-auto-shutdown.log");
+        let path = dir.join("easy-shutdown.log");
         let too_big = std::fs::metadata(&path).map(|m| m.len() > LOG_MAX_BYTES).unwrap_or(false);
         std::fs::OpenOptions::new()
             .create(true)
@@ -59,7 +59,7 @@ fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
             } else {
                 "O app continua rodando na bandeja. Clique no ícone para abrir ou use \"Sair\" no menu dele."
             };
-            actions::notify(app, "Wise Auto Shutdown", body);
+            actions::notify(app, "Easy Shutdown", body);
             let _ = settings::save(app, types::Settings { tray_hint_shown: true, ..s });
         }
     } else if pending {
@@ -90,6 +90,9 @@ pub fn run() {
             init_logging(handle);
             tracing::info!("iniciando v{}", app.package_info().version);
 
+            if persist::migrate_legacy_data(handle) {
+                power::remove_legacy_autostart();
+            }
             let s = settings::load(handle);
             actions::load_history(handle);
             schedule::load(handle);
@@ -148,5 +151,5 @@ pub fn run() {
             commands::app_quit,
         ])
         .run(tauri::generate_context!())
-        .expect("erro ao iniciar Wise Auto Shutdown");
+        .expect("erro ao iniciar Easy Shutdown");
 }

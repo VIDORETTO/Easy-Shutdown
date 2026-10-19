@@ -1,13 +1,13 @@
 [package]
-name = "wise-auto-shutdown"
+name = "easy-shutdown"
 version = "0.2.0"
 description = "App moderno para gerenciar desligamento, bloqueio, reinicio e suspensão no Windows 11"
-authors = ["Wise"]
+authors = ["Easy Shutdown"]
 edition = "2021"
 rust-version = "1.77.2"
 
 [lib]
-name = "wise_auto_shutdown_lib"
+name = "easy_shutdown_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -28,6 +28,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Power",
     "Win32_System_Threading",
     "Win32_Security",
+    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",

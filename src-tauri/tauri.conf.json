@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Wise Auto Shutdown",
+  "productName": "Easy Shutdown",
   "version": "../package.json",
-  "identifier": "com.wise.autoshutdown",
+  "identifier": "com.easyshutdown.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Wise Auto Shutdown",
+        "title": "Easy Shutdown",
         "width": 920,
         "height": 720,
         "resizable": true,
@@ -51,7 +51,7 @@
     ],
     "resources": [],
     "externalBin": [],
-    "copyright": "© 2025 Wise",
+    "copyright": "© 2025 Easy Shutdown",
     "category": "Utility",
     "shortDescription": "Gerencie desligamento, bloqueio, reinicio e suspensão",
     "longDescription": "App moderno para Windows 11 que facilita desligar, reiniciar, suspender, hibernar, bloquear e encerrar sessão — com agendamento, atalhos globais e bandeja do sistema.",

@@ -23,7 +23,7 @@ pub fn notify(app: &AppHandle, title: &str, body: impl Into<String>) {
 }
 
 pub fn notify_error(app: &AppHandle, body: impl Into<String>) {
-    notify(app, "Wise Auto Shutdown — erro", body);
+    notify(app, "Easy Shutdown — erro", body);
 }
 
 // ---------------------------------------------------------------- histórico

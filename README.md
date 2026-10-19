@@ -1,8 +1,8 @@
-# ⚡ Wise Auto Shutdown
+# ⚡ Easy Shutdown
 
 > **Gerencie o ciclo de energia do seu Windows 11 com estilo, tarefas agendadas e atalhos globais.**
 
-O **Wise Auto Shutdown** é um aplicativo de desktop nativo, leve e bonito, feito para quem
+O **Easy Shutdown** é um aplicativo de desktop nativo, leve e bonito, feito para quem
 quer desligar, reiniciar, suspender, hibernar, bloquear, encerrar sessão ou apagar a tela —
 na hora, em tarefas agendadas (únicas, semanais ou por inatividade), via atalho de teclado ou
 pela bandeja do sistema — sem caixas de diálogo feias ou comandos no terminal.
@@ -13,7 +13,7 @@ pela bandeja do sistema — sem caixas de diálogo feias ou comandos no terminal
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?style=for-the-badge)
 ![Rust](https://img.shields.io/badge/Rust-1.77+-DEA584?style=for-the-badge&logo=rust)
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react)
-![Licença](https://img.shields.io/badge/licença-Proprietária%20©%202025%20Wise-lightgrey?style=for-the-badge)
+![Licença](https://img.shields.io/badge/licença-Proprietária%20©%202025%20Easy%20Shutdown-lightgrey?style=for-the-badge)
 
 </div>
 
@@ -209,8 +209,8 @@ do workflow de CI) e execute — instala no modo *currentUser*, sem admin.
 ### Desenvolvedor
 
 ```bash
-git clone <url-do-repositorio> wise-auto-shutdown
-cd wise-auto-shutdown
+git clone <url-do-repositorio> easy-shutdown
+cd easy-shutdown
 npm install
 npm run tauri:dev      # janela com hot-reload
 npm run tauri:build    # instaladores em src-tauri/target/release/bundle/
@@ -249,7 +249,7 @@ mostra se o Windows aceitou. Há também um atalho opcional para **Cancelar pró
 
 ## 🗂️ Dados do app e desinstalação
 
-Arquivos em `%APPDATA%\com.wise.autoshutdown\`:
+Arquivos em `%APPDATA%\com.easyshutdown.desktop\`:
 
 | Arquivo | Conteúdo |
 |---------|----------|
@@ -257,13 +257,17 @@ Arquivos em `%APPDATA%\com.wise.autoshutdown\`:
 | `tasks.json` | Tarefas agendadas |
 | `history.json` | Últimas 100 ações |
 
-Logs em `%LOCALAPPDATA%\com.wise.autoshutdown\logs\` (*Ajustes → Logs → Abrir pasta*).
+> Vindo da versão com o nome antigo (**Wise Auto Shutdown**)? Na primeira execução o app copia
+> configurações, tarefas e histórico de `%APPDATA%\com.wise.autoshutdown\` e remove a entrada
+> antiga de início automático. Depois disso a versão antiga pode ser desinstalada.
+
+Logs em `%LOCALAPPDATA%\com.easyshutdown.desktop\logs\` (*Ajustes → Logs → Abrir pasta*).
 
 Para desinstalar use *Configurações → Apps*. Para remover os dados:
 
 ```powershell
-Remove-Item -Recurse -Force "$env:APPDATA\com.wise.autoshutdown", "$env:LOCALAPPDATA\com.wise.autoshutdown"
-Remove-Item -Force "$env:TEMP\wise-auto-shutdown-panic-*.log" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$env:APPDATA\com.easyshutdown.desktop", "$env:LOCALAPPDATA\com.easyshutdown.desktop"
+Remove-Item -Force "$env:TEMP\easy-shutdown-panic-*.log" -ErrorAction SilentlyContinue
 ```
 
 ---
@@ -271,7 +275,7 @@ Remove-Item -Force "$env:TEMP\wise-auto-shutdown-panic-*.log" -ErrorAction Silen
 ## 📂 Estrutura do projeto
 
 ```
-wise-auto-shutdown/
+easy-shutdown/
 ├── .github/workflows/ci.yml   # CI no Windows: testes, clippy, build e instaladores
 ├── src/                       # FRONTEND
 │   ├── App.tsx                # Shell, abas, diálogos globais, tema/Mica
@@ -308,14 +312,14 @@ wise-auto-shutdown/
 | Tarefa marcada como "perdida" | PC suspenso/desligado ou app fechado no horário | Esperado; ligue *Manter o PC acordado com tarefa pendente*. |
 | Desligamento não aconteceu | Programa pedindo "salvar?" | Use *Forçar* em tarefas sem ninguém no PC. |
 | Fechar não encerra o app | Bandeja ligada ou tarefas ativas | Use *Sair* no menu da bandeja. |
-| Crash inesperado | — | Veja *Ajustes → Logs* e `%TEMP%/wise-auto-shutdown-panic-<usuário>.log`. |
+| Crash inesperado | — | Veja *Ajustes → Logs* e `%TEMP%/easy-shutdown-panic-<usuário>.log`. |
 
 ---
 
 <div align="center">
 
-**Wise Auto Shutdown** · feito com Rust + Tauri + React
+**Easy Shutdown** · feito com Rust + Tauri + React
 
-© 2025 Wise — Utilitário de energia para Windows 11
+© 2025 Easy Shutdown — Utilitário de energia para Windows 11
 
 </div>

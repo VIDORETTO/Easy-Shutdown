@@ -378,7 +378,7 @@ fn missed(app: &AppHandle, eng: &mut Engine, t: &Task, due: i64) {
     );
     notify(
         app,
-        "Wise Auto Shutdown",
+        "Easy Shutdown",
         format!(
             "\"{}\" não foi executado ({}) porque o PC estava suspenso, desligado ou o app fechado.",
             t.action.label_pt(),
@@ -434,7 +434,7 @@ fn tick(app: &AppHandle, eng: &mut Engine) -> Duration {
             });
             notify(
                 app,
-                "Wise Auto Shutdown — ação iminente",
+                "Easy Shutdown — ação iminente",
                 format!(
                     "O horário de \"{}\" passou enquanto o PC estava suspenso ou o app fechado. \
                      Executa em {}s — cancele se necessário.",
@@ -502,7 +502,7 @@ fn tick(app: &AppHandle, eng: &mut Engine) -> Duration {
         {
             notify(
                 app,
-                "Wise Auto Shutdown",
+                "Easy Shutdown",
                 format!(
                     "\"{}\" será executado em {} ({}).",
                     t.action.label_pt(),
@@ -538,16 +538,16 @@ fn tick(app: &AppHandle, eng: &mut Engine) -> Duration {
     // 7) Bandeja.
     let tip = match &next_info {
         Some(n) if n.kind == NextKind::Time => format!(
-            "Wise Auto Shutdown — {} em {}",
+            "Easy Shutdown — {} em {}",
             n.action.label_pt(),
             format_remaining(n.remaining_seconds as i64)
         ),
         Some(n) => format!(
-            "Wise Auto Shutdown — {} após inatividade (faltam {})",
+            "Easy Shutdown — {} após inatividade (faltam {})",
             n.action.label_pt(),
             format_remaining(n.remaining_seconds as i64)
         ),
-        None => "Wise Auto Shutdown".to_string(),
+        None => "Easy Shutdown".to_string(),
     };
     if tip != eng.last_tooltip {
         tray::update_tooltip(app, &tip);

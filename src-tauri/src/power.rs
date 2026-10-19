@@ -10,6 +10,7 @@ use windows::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
     TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
+use windows::Win32::System::Registry::{RegDeleteKeyValueW, HKEY_CURRENT_USER};
 use windows::Win32::System::Power::{
     GetPwrCapabilities, SetSuspendState, SetThreadExecutionState, ES_CONTINUOUS,
     ES_SYSTEM_REQUIRED, SYSTEM_POWER_CAPABILITIES,
@@ -152,6 +153,21 @@ pub fn windows_build() -> u32 {
         info.dwBuildNumber
     } else {
         0
+    }
+}
+
+/// Remove a entrada de início automático do nome antigo ("Wise Auto Shutdown"),
+/// para o Windows não tentar abrir o executável da versão anterior.
+pub fn remove_legacy_autostart() {
+    let r = unsafe {
+        RegDeleteKeyValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            w!("Wise Auto Shutdown"),
+        )
+    };
+    if r.is_ok() {
+        tracing::info!("migração: início automático do nome antigo removido");
     }
 }
 

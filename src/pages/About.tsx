@@ -10,7 +10,7 @@ export default function About() {
         <div className="w-20 h-20 rounded-2xl bg-accent flex items-center justify-center mb-5 shadow-fluentLg">
           <Zap size={40} className="text-white" />
         </div>
-        <h1 className="text-2xl font-bold text-text-primary dark:text-text-darkPrimary">Wise Auto Shutdown</h1>
+        <h1 className="text-2xl font-bold text-text-primary dark:text-text-darkPrimary">Easy Shutdown</h1>
         {version && <p className="text-sm text-text-secondary dark:text-text-darkSecondary mt-1.5">v{version}</p>}
         <p className="text-sm text-text-secondary dark:text-text-darkSecondary mt-4 max-w-sm leading-relaxed">
           Desligue, reinicie, suspenda, hiberne, bloqueie, encerre a sessão ou apague a tela — na hora, em tarefas

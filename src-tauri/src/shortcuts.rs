@@ -96,8 +96,8 @@ fn on_pressed(app: &AppHandle, target: HotkeyTarget) {
     match target {
         HotkeyTarget::Action(action) => actions::request(app, action, Source::Hotkey),
         HotkeyTarget::CancelNext => match schedule::cancel_next(app) {
-            Ok(Some(msg)) => notify(app, "Wise Auto Shutdown", msg),
-            Ok(None) => notify(app, "Wise Auto Shutdown", "Nenhuma tarefa pendente."),
+            Ok(Some(msg)) => notify(app, "Easy Shutdown", msg),
+            Ok(None) => notify(app, "Easy Shutdown", "Nenhuma tarefa pendente."),
             Err(e) => actions::notify_error(app, e),
         },
     }

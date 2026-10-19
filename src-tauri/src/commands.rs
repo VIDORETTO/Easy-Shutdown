@@ -118,7 +118,7 @@ pub fn hotkeys_resume(app: AppHandle) {
 
 #[tauri::command]
 pub fn test_notification(app: AppHandle) {
-    notify(&app, "Wise Auto Shutdown", "Notificação de teste — funcionando!");
+    notify(&app, "Easy Shutdown", "Notificação de teste — funcionando!");
 }
 
 #[tauri::command]

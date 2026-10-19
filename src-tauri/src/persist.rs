@@ -51,3 +51,41 @@ pub fn save_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Identificador usado até a v0.2, quando o app se chamava "Wise Auto Shutdown".
+const LEGACY_IDENTIFIER: &str = "com.wise.autoshutdown";
+const LEGACY_FILES: [&str; 3] = ["settings.json", "tasks.json", "history.json"];
+
+/// Na primeira execução com o nome novo, copia configurações, tarefas e histórico da
+/// pasta antiga. Retorna `true` se migrou algo.
+pub fn migrate_legacy_data(app: &AppHandle) -> bool {
+    let new_dir = data_dir(app);
+    if new_dir.join("settings.json").exists() {
+        return false;
+    }
+    let Some(old_dir) = new_dir.parent().map(|p| p.join(LEGACY_IDENTIFIER)) else {
+        return false;
+    };
+    if !old_dir.is_dir() {
+        return false;
+    }
+    if let Err(e) = std::fs::create_dir_all(&new_dir) {
+        tracing::error!("migração: não foi possível criar {new_dir:?}: {e}");
+        return false;
+    }
+    let mut migrated = false;
+    for name in LEGACY_FILES {
+        let from = old_dir.join(name);
+        if !from.exists() {
+            continue;
+        }
+        match std::fs::copy(&from, new_dir.join(name)) {
+            Ok(_) => migrated = true,
+            Err(e) => tracing::error!("migração: falha ao copiar {from:?}: {e}"),
+        }
+    }
+    if migrated {
+        tracing::info!("migração: dados copiados de {old_dir:?}");
+    }
+    migrated
+}

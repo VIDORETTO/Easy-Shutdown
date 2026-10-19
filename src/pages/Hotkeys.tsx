@@ -1,224 +1,212 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Keyboard, X } from "lucide-react";
-import { ACTIONS } from "@/lib/actions";
-import { useStore } from "@/store/useStore";
+import { useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Keyboard, X } from "lucide-react";
+import Toggle from "@/components/Toggle";
+import { HOTKEY_TARGETS } from "@/lib/actions";
+import { captureFromEvent, normalizeCombo } from "@/lib/hotkeys";
 import { api } from "@/lib/invoke";
-import type { ActionKind } from "@/types";
+import { useStore } from "@/store/useStore";
+import type { HotkeyTarget } from "@/types";
 
-const SPECIAL_KEYS: Record<string, string> = {
-  " ": "Space",
-  Spacebar: "Space",
-  Enter: "Enter",
-  Escape: "Escape",
-  Tab: "Tab",
-  Home: "Home",
-  End: "End",
-  Delete: "Delete",
-  Insert: "Insert",
-  PageUp: "PageUp",
-  PageDown: "PageDown",
-  ArrowUp: "Up",
-  ArrowDown: "Down",
-  ArrowLeft: "Left",
-  ArrowRight: "Right",
-};
+const labelOf = (t: HotkeyTarget) => HOTKEY_TARGETS.find((x) => x.key === t)?.label ?? t;
 
 export default function Hotkeys() {
   const settings = useStore((s) => s.settings);
-  const saveSettings = useStore((s) => s.saveSettings);
+  const status = useStore((s) => s.hotkeyStatus);
+  const updateSettings = useStore((s) => s.updateSettings);
   const addToast = useStore((s) => s.addToast);
+  const tab = useStore((s) => s.tab);
 
-  const [capturing, setCapturing] = useState<ActionKind | null>(null);
-  const [hotkeys, setHotkeys] = useState<Partial<Record<ActionKind, string>>>({});
+  const [capturing, setCapturing] = useState<HotkeyTarget | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
 
-  // Refs síncronas para evitar stale closure em handlers async
-  const hotkeysRef = useRef(hotkeys);
-  const settingsRef = useRef(settings);
-  useEffect(() => { hotkeysRef.current = hotkeys; }, [hotkeys]);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
-
-  // Sincroniza com settings
+  // Sai da captura ao trocar de aba ou a janela perder o foco.
   useEffect(() => {
-    if (settings) setHotkeys({ ...settings.hotkeys });
-  }, [settings]);
+    if (tab !== "hotkeys") setCapturing(null);
+  }, [tab]);
+  useEffect(() => {
+    const onBlur = () => setCapturing(null);
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
 
-  // Captura teclas a nível de janela (não depende de focus num elemento)
-  const handleCapture = useCallback(
-    (e: KeyboardEvent) => {
-      if (!capturing) return;
+  // Durante a captura os atalhos globais ficam desligados — senão apertar uma
+  // combinação já registrada executaria a ação em vez de ser capturada.
+  useEffect(() => {
+    if (!capturing) return;
+    setCaptureError(null);
+    void api.hotkeysSuspend();
+    return () => {
+      void api.hotkeysResume();
+    };
+  }, [capturing]);
+
+  useEffect(() => {
+    if (!capturing || !settings) return;
+    const handler = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
-
-      if (e.key === "Escape") {
+      const r = captureFromEvent(e);
+      if (r.kind === "incomplete") return;
+      if (r.kind === "cancel") {
         setCapturing(null);
         return;
       }
-      if (e.repeat) return; // ignora auto-repeat
-
-      const parts: string[] = [];
-      if (e.ctrlKey) parts.push("Ctrl");
-      if (e.altKey) parts.push("Alt");
-      if (e.shiftKey) parts.push("Shift");
-      if (e.metaKey) parts.push("Win");
-
-      // Ignora se só tem modifier (precisa de pelo menos uma tecla normal)
-      const isModifierOnly = ["Control", "Alt", "Shift", "Meta"].includes(e.key);
-      if (isModifierOnly) return;
-
-      // Normaliza a tecla
-      let key = e.key;
-      if (key.length === 1) {
-        key = key.toUpperCase();
-      } else if (SPECIAL_KEYS[key]) {
-        key = SPECIAL_KEYS[key];
+      if (r.kind === "error") {
+        setCaptureError(r.message);
+        return;
       }
 
-      parts.push(key);
-      if (parts.length < 2) return;
-
-      const combo = parts.join("+");
-
-      // Detecção de conflito com outra ação
-      const conflict = Object.entries(hotkeysRef.current).find(
-        ([act, keys]) => act !== capturing && keys === combo
-      );
-
-      const newHotkeys = { ...hotkeysRef.current, [capturing]: combo };
-      setHotkeys(newHotkeys);
-      hotkeysRef.current = newHotkeys; // atualiza ref imediatamente
+      // Uma combinação pertence a uma só ação: tira de quem já usava.
+      const next: Partial<Record<HotkeyTarget, string>> = {};
+      let movedFrom: HotkeyTarget | null = null;
+      for (const [k, v] of Object.entries(settings.hotkeys) as [HotkeyTarget, string][]) {
+        if (k === capturing) continue;
+        if (v && normalizeCombo(v) === r.combo) movedFrom = k;
+        else if (v) next[k] = v;
+      }
+      next[capturing] = r.combo;
+      const target = capturing;
       setCapturing(null);
-
-      // Salva e registra
-      (async () => {
-        try {
-          await saveSettings({ ...settingsRef.current!, hotkeys: newHotkeys });
-          await api.registerHotkeys(newHotkeys);
-          if (conflict) {
-            addToast(
-              "info",
-              `"${combo}" agora é de "${ACTIONS.find((a) => a.key === capturing)?.label ?? capturing}". Conflita com "${ACTIONS.find((a) => a.key === conflict[0])?.label ?? conflict[0]}".`
-            );
-          } else {
-            addToast("success", `Atalho definido: ${combo}`);
-          }
-        } catch (err) {
-          // Reverte em caso de erro
-          setHotkeys(hotkeysRef.current);
-          addToast("error", `Falha ao salvar atalho: ${err}`);
-        }
-      })();
-    },
-    [capturing, hotkeys, settings, saveSettings, addToast]
-  );
-
-  useEffect(() => {
-    if (!capturing) return;
-    window.addEventListener("keydown", handleCapture, { capture: true });
-    return () => window.removeEventListener("keydown", handleCapture, { capture: true });
-  }, [capturing, handleCapture]);
+      void updateSettings({ hotkeys: next }).then((ok) => {
+        if (!ok) return;
+        addToast(
+          "success",
+          movedFrom
+            ? `${r.combo} agora é de "${labelOf(target)}" (removido de "${labelOf(movedFrom)}").`
+            : `Atalho de "${labelOf(target)}": ${r.combo}`
+        );
+      });
+    };
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
+  }, [capturing, settings, updateSettings, addToast]);
 
   if (!settings) return null;
 
-  const clearHotkey = async (action: ActionKind) => {
-    const current = hotkeysRef.current;
-    const newHotkeys = { ...current };
-    delete newHotkeys[action];
-    setHotkeys(newHotkeys);
-    hotkeysRef.current = newHotkeys;
-    try {
-      await saveSettings({ ...settingsRef.current!, hotkeys: newHotkeys });
-      await api.registerHotkeys(newHotkeys);
-      addToast("info", "Atalho removido.");
-    } catch (err) {
-      setHotkeys(current);
-      hotkeysRef.current = current;
-      addToast("error", `Falha: ${err}`);
-    }
+  const clearHotkey = (target: HotkeyTarget) => {
+    const next = { ...settings.hotkeys };
+    delete next[target];
+    void updateSettings({ hotkeys: next });
   };
+
+  const hasAny = Object.values(settings.hotkeys).some(Boolean);
 
   return (
     <div className="page-scroll space-y-5">
       <div>
-        <h2 className="text-xl font-bold text-text-primary dark:text-text-darkPrimary mb-1">
-          Atalhos globais
-        </h2>
+        <h2 className="text-xl font-bold text-text-primary dark:text-text-darkPrimary mb-1">Atalhos globais</h2>
         <p className="text-sm text-text-secondary dark:text-text-darkSecondary">
-          Funcionam mesmo com o app em segundo plano. Clique em &quot;capturar&quot; e
-          pressione a combinação desejada.
+          Funcionam mesmo com o app na bandeja. Clique em &quot;Capturar&quot; e pressione a combinação. Se
+          &quot;Sempre pedir confirmação&quot; estiver ligado, o atalho abre a confirmação antes de agir.
         </p>
       </div>
 
-      <div className="space-y-2.5">
-        {ACTIONS.map((action) => {
-          const isCapturing = capturing === action.key;
-          const keys = hotkeys[action.key];
+      <div className="flex items-center justify-between p-4 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
+        <div>
+          <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">Atalhos ativados</p>
+          <p className="text-xs text-text-secondary dark:text-text-darkSecondary">Desligue para pausar todos sem apagar</p>
+        </div>
+        <Toggle
+          checked={settings.hotkeys_enabled}
+          onChange={(v) => updateSettings({ hotkeys_enabled: v })}
+          ariaLabel="Atalhos ativados"
+        />
+      </div>
+
+      <ul className="space-y-2.5">
+        {HOTKEY_TARGETS.map((t) => {
+          const isCapturing = capturing === t.key;
+          const keys = settings.hotkeys[t.key];
+          const st = status.find((s) => s.target === t.key);
+          const Icon = t.icon;
 
           return (
-            <div
-              key={action.key}
-              className="flex items-center justify-between p-4 rounded-2xl
-                         bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark"
+            <li
+              key={t.key}
+              className={`p-4 rounded-2xl bg-card dark:bg-card-dark border ${
+                isCapturing ? "border-accent" : "border-stroke dark:border-stroke-dark"
+              }`}
             >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center bg-black/5 dark:bg-white/5 ${action.iconColor}`}
-                >
-                  <action.icon size={20} />
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center bg-black/5 dark:bg-white/5 ${t.iconColor}`}>
+                    <Icon size={20} />
+                  </div>
+                  <span className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">{t.label}</span>
                 </div>
-                <span className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">
-                  {action.label}
-                </span>
-              </div>
 
-              {isCapturing ? (
-                <div
-                  className="px-4 py-2 rounded-lg bg-accent/20 text-accent text-sm font-mono flex items-center gap-2"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <Keyboard size={16} />
-                  Pressione... (Esc cancela)
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {keys ? (
-                    <>
-                      <kbd className="px-3 py-1.5 rounded-lg bg-black/5 dark:bg-white/5 text-sm font-mono text-text-primary dark:text-text-darkPrimary min-w-[70px] text-center">
-                        {keys}
-                      </kbd>
+                {isCapturing ? (
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="px-4 py-2 rounded-lg bg-accent/20 text-accent text-sm font-mono flex items-center gap-2"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Keyboard size={16} />
+                      Pressione… (Esc cancela)
+                    </div>
+                    <button type="button" className="btn-ghost text-sm px-3 py-1.5" onClick={() => setCapturing(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <kbd
+                      className={`px-3 py-1.5 rounded-lg bg-black/5 dark:bg-white/5 text-sm font-mono min-w-[70px] text-center ${
+                        keys ? "text-text-primary dark:text-text-darkPrimary" : "text-text-secondary dark:text-text-darkSecondary"
+                      }`}
+                    >
+                      {keys || "—"}
+                    </kbd>
+                    {keys && (
                       <button
                         type="button"
                         className="btn-ghost text-xs px-2 py-1.5"
-                        onClick={() => clearHotkey(action.key)}
-                        aria-label={`Limpar atalho de ${action.label}`}
+                        onClick={() => clearHotkey(t.key)}
+                        aria-label={`Limpar atalho de ${t.label}`}
                       >
                         <X size={15} />
                       </button>
-                    </>
-                  ) : (
-                    <kbd className="px-3 py-1.5 rounded-lg bg-black/5 dark:bg-white/5 text-sm font-mono text-text-secondary dark:text-text-darkSecondary min-w-[70px] text-center">
-                      —
-                    </kbd>
-                  )}
-                  <button
-                    type="button"
-                    className="btn-ghost text-sm px-3 py-1.5"
-                    onClick={() => setCapturing(action.key)}
-                  >
-                    Capturar
-                  </button>
-                </div>
+                    )}
+                    <button type="button" className="btn-ghost text-sm px-3 py-1.5" onClick={() => setCapturing(t.key)}>
+                      Capturar
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {isCapturing && captureError && (
+                <p className="mt-2 text-xs text-danger flex items-start gap-1.5" role="alert">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  {captureError}
+                </p>
               )}
-            </div>
+              {!isCapturing && keys && st && (
+                <p
+                  className={`mt-2 text-xs flex items-start gap-1.5 ${
+                    st.registered ? "text-success" : "text-danger"
+                  }`}
+                >
+                  {st.registered ? <CheckCircle2 size={14} className="shrink-0 mt-0.5" /> : <AlertCircle size={14} className="shrink-0 mt-0.5" />}
+                  {st.registered ? "Ativo" : st.error ?? "Não registrado"}
+                </p>
+              )}
+            </li>
           );
         })}
-      </div>
+      </ul>
 
-      <div className="p-4 rounded-2xl bg-black/5 dark:bg-white/5">
+      <div className="flex items-start justify-between gap-4 p-4 rounded-2xl bg-black/5 dark:bg-white/5">
         <p className="text-sm text-text-secondary dark:text-text-darkSecondary">
-          💡 Dica: use combinações com <kbd className="font-mono px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">Ctrl+Alt</kbd> para evitar
-          conflitos com atalhos do sistema. A tecla Win costuma conflitar com o Windows.
+          💡 Boas opções: <kbd className="font-mono px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">Ctrl+Alt+F9</kbd>,{" "}
+          <kbd className="font-mono px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">Ctrl+Shift+F12</kbd> ou combinações com Win.
+          Ctrl+Alt+letra não é aceito porque equivale a AltGr (usado para digitar / ? ° €).
         </p>
+        {hasAny && (
+          <button type="button" className="btn-ghost text-xs px-3 py-1.5 shrink-0" onClick={() => updateSettings({ hotkeys: {} })}>
+            Limpar todos
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,3 @@
-import type { LucideIcon } from "lucide-react";
 import type { ActionMeta } from "@/lib/actions";
 import HelpTooltip from "./HelpTooltip";
 
@@ -6,63 +5,57 @@ interface Props {
   action: ActionMeta;
   disabled?: boolean;
   badge?: string;
-  onExecute: () => void;
+  /** Explicação extra no "?" (ex.: por que está indisponível). */
+  note?: string;
+  onExecute: (action: ActionMeta) => void;
 }
 
-export default function ActionCard({ action, disabled, badge, onExecute }: Props) {
-  const Icon: LucideIcon = action.icon;
+// O card inteiro é um <button>; a ajuda fica fora dele (sem elementos interativos
+// aninhados — Enter/Espaço no "?" nunca disparam a ação).
+export default function ActionCard({ action, disabled, badge, note, onExecute }: Props) {
+  const Icon = action.icon;
 
   return (
-    <div
-      className={`card min-h-[168px] ${action.accentClass} ${disabled ? "opacity-50 pointer-events-none" : ""}`}
-      onClick={disabled ? undefined : onExecute}
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled}
-      aria-label={action.label}
-      onKeyDown={(e) => {
-        if (disabled) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onExecute();
-        }
-      }}
-    >
-      <div className="flex items-start justify-between mb-4">
+    <div className={`card-shell ${action.accentClass} ${disabled ? "opacity-60" : ""}`}>
+      <button
+        type="button"
+        className="card-button group"
+        disabled={disabled}
+        onClick={() => onExecute(action)}
+        aria-describedby={`desc-${action.key}`}
+      >
         <div
-          className={`w-12 h-12 rounded-xl flex items-center justify-center bg-black/5 dark:bg-white/5 ${action.iconColor}`}
+          className={`w-12 h-12 mb-4 rounded-xl flex items-center justify-center bg-black/5 dark:bg-white/5 ${action.iconColor}`}
         >
           <Icon size={24} />
         </div>
-        <HelpTooltip action={action} />
-      </div>
 
-      <div className="flex items-center gap-2 mb-1.5">
-        <h3 className="text-lg font-semibold text-text-primary dark:text-text-darkPrimary leading-snug overflow-visible">
-          {action.label}
-        </h3>
-        {badge && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-warning/20 text-warning font-semibold uppercase tracking-wide">
-            {badge}
+        <div className="flex items-center gap-2 mb-1.5 pr-8">
+          <span className="text-lg font-semibold text-text-primary dark:text-text-darkPrimary leading-snug">
+            {action.label}
           </span>
-        )}
-      </div>
+          {badge && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-warning/20 text-warning font-semibold uppercase tracking-wide">
+              {badge}
+            </span>
+          )}
+        </div>
 
-      <p className="text-sm text-text-secondary dark:text-text-darkSecondary mb-4 leading-snug">
-        {action.shortDesc}
-      </p>
+        <span
+          id={`desc-${action.key}`}
+          className="block text-sm text-text-secondary dark:text-text-darkSecondary mb-4 leading-snug"
+        >
+          {action.shortDesc}
+        </span>
 
-      <button
-        type="button"
-        className="btn-ghost w-full text-sm hover:bg-accent/10 hover:text-accent font-medium"
-        tabIndex={-1}
-        onClick={(e) => {
-          e.stopPropagation();
-          onExecute();
-        }}
-      >
-        Executar →
+        <span className="block w-full text-center text-sm font-medium py-2 rounded-fluent text-accent bg-accent/0 group-hover:bg-accent/10">
+          {disabled ? "Indisponível" : "Executar →"}
+        </span>
       </button>
+
+      <div className="absolute top-4 right-4">
+        <HelpTooltip action={action} note={note} />
+      </div>
     </div>
   );
 }

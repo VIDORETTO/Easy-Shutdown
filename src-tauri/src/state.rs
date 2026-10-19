@@ -1,59 +1,52 @@
 //! Estado global compartilhado entre os módulos.
 
-use parking_lot::Mutex;
-use tauri::async_runtime::JoinHandle;
-use tokio_util::sync::CancellationToken;
+use parking_lot::{Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::Notify;
 
-use crate::types::ActiveSchedule;
+use crate::power::KeepAwake;
+use crate::types::{HistoryEntry, NextInfo, Settings, Task};
 
 pub struct AppState {
-    /// Scheduler ativo (no máximo 1 simultâneo no MVP).
-    pub schedule: Mutex<Option<ScheduleHandle>>,
-    /// Se o tray icon foi criado com sucesso.
-    pub tray_built: std::sync::atomic::AtomicBool,
-    /// Cache de minimize_to_tray para evitar I/O no close handler.
-    pub minimize_to_tray: parking_lot::RwLock<bool>,
-    /// Cache de confirm_before_action.
-    pub confirm_before_action: parking_lot::RwLock<bool>,
-}
-
-pub struct ScheduleHandle {
-    pub info: ActiveSchedule,
-    pub cancel: CancellationToken,
-    pub task: JoinHandle<()>,
+    /// Cache das configurações (fonte da verdade em memória; persistido em settings.json).
+    pub settings: RwLock<Settings>,
+    pub tasks: Mutex<Vec<Task>>,
+    pub history: Mutex<Vec<HistoryEntry>>,
+    /// Última "próxima tarefa" calculada pelo motor.
+    pub next: Mutex<Option<NextInfo>>,
+    /// Acorda o motor de agendamento imediatamente (após mudar tarefas/configurações).
+    pub engine_wake: Notify,
+    pub tray_built: AtomicBool,
+    pub mica: AtomicBool,
+    /// "Manter PC acordado" ligado manualmente pelo usuário.
+    pub keep_awake_manual: AtomicBool,
+    pub keep_awake: Mutex<Option<KeepAwake>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            schedule: Mutex::new(None),
-            tray_built: std::sync::atomic::AtomicBool::new(false),
-            minimize_to_tray: parking_lot::RwLock::new(true),
-            confirm_before_action: parking_lot::RwLock::new(true),
+            settings: RwLock::new(Settings::default()),
+            tasks: Mutex::new(Vec::new()),
+            history: Mutex::new(Vec::new()),
+            next: Mutex::new(None),
+            engine_wake: Notify::new(),
+            tray_built: AtomicBool::new(false),
+            mica: AtomicBool::new(false),
+            keep_awake_manual: AtomicBool::new(false),
+            keep_awake: Mutex::new(None),
         }
     }
 
-    pub fn set_tray_built(&self, v: bool) {
-        self.tray_built.store(v, std::sync::atomic::Ordering::Relaxed);
+    pub fn settings(&self) -> Settings {
+        self.settings.read().clone()
     }
 
     pub fn is_tray_built(&self) -> bool {
-        self.tray_built.load(std::sync::atomic::Ordering::Relaxed)
+        self.tray_built.load(Ordering::Relaxed)
     }
 
-    pub fn set_minimize_to_tray(&self, v: bool) {
-        *self.minimize_to_tray.write() = v;
-    }
-
-    pub fn get_minimize_to_tray(&self) -> bool {
-        *self.minimize_to_tray.read()
-    }
-
-    pub fn set_confirm_before_action(&self, v: bool) {
-        *self.confirm_before_action.write() = v;
-    }
-
-    pub fn get_confirm_before_action(&self) -> bool {
-        *self.confirm_before_action.read()
+    pub fn wake_engine(&self) {
+        self.engine_wake.notify_one();
     }
 }

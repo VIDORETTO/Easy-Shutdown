@@ -1,108 +1,112 @@
-import { useEffect, useState, type ComponentType } from "react";
-import { getCurrentWindow, Effect, EffectState } from "@tauri-apps/api/window";
+import { useEffect, type ComponentType } from "react";
 import {
   Home as HomeIcon,
-  Clock,
+  CalendarClock,
   Keyboard,
   Settings as SettingsIcon,
   Info,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 
 import Titlebar from "@/components/Titlebar";
 import ToastContainer from "@/components/Toast";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import FinalWarning from "@/components/FinalWarning";
+import QuitDialog from "@/components/QuitDialog";
 import Home from "@/pages/Home";
-import Scheduler from "@/pages/Scheduler";
+import Tasks from "@/pages/Tasks";
 import Hotkeys from "@/pages/Hotkeys";
 import Settings from "@/pages/Settings";
 import About from "@/pages/About";
-import { useStore, applyTheme, watchSystemTheme } from "@/store/useStore";
+import { useStore, applyTheme, watchSystemTheme, type Tab } from "@/store/useStore";
 
-type Tab = "home" | "scheduler" | "hotkeys" | "settings" | "about";
-
-const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
-  { key: "home", label: "Início", icon: HomeIcon },
-  { key: "scheduler", label: "Agendar", icon: Clock },
-  { key: "hotkeys", label: "Atalhos", icon: Keyboard },
-  { key: "settings", label: "Config", icon: SettingsIcon },
-  { key: "about", label: "Sobre", icon: Info },
-];
-
-const PANELS: { key: Tab; Component: ComponentType }[] = [
-  { key: "home", Component: Home },
-  { key: "scheduler", Component: Scheduler },
-  { key: "hotkeys", Component: Hotkeys },
-  { key: "settings", Component: Settings },
-  { key: "about", Component: About },
+const TABS: { key: Tab; label: string; icon: LucideIcon; Component: ComponentType }[] = [
+  { key: "home", label: "Início", icon: HomeIcon, Component: Home },
+  { key: "tasks", label: "Tarefas", icon: CalendarClock, Component: Tasks },
+  { key: "hotkeys", label: "Atalhos", icon: Keyboard, Component: Hotkeys },
+  { key: "settings", label: "Ajustes", icon: SettingsIcon, Component: Settings },
+  { key: "about", label: "Sobre", icon: Info, Component: About },
 ];
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("home");
   const init = useStore((s) => s.init);
-  const cleanup = useStore((s) => s.cleanup);
-  const settings = useStore((s) => s.settings);
+  const retryInit = useStore((s) => s.retryInit);
+  const tab = useStore((s) => s.tab);
+  const setTab = useStore((s) => s.setTab);
+  const theme = useStore((s) => s.settings?.theme);
+  const hasSettings = useStore((s) => s.settings !== null);
   const initError = useStore((s) => s.initError);
-  const hasActiveSchedule = useStore((s) => s.activeSchedule !== null);
+  const mica = useStore((s) => s.mica);
+  const activeTasks = useStore((s) => s.tasks.filter((t) => t.enabled).length);
+  const refreshHibernate = useStore((s) => s.refreshHibernate);
 
   useEffect(() => {
-    init();
-    return () => cleanup();
-  }, [init, cleanup]);
+    void init();
+  }, [init]);
 
-  // Tema + Mica — dep narrow para só reagir a theme, não a qualquer settings change
-  const theme = settings?.theme;
+  // Com Mica o fundo do documento fica transparente; sem ele (Win10) usa cor sólida.
   useEffect(() => {
-    if (!settings) return;
-    applyTheme(settings.theme);
-    getCurrentWindow()
-      .setEffects({ effects: [Effect.Mica], state: EffectState.Active })
-      .catch(() => {});
+    document.documentElement.classList.toggle("mica", mica);
+  }, [mica]);
 
-    if (settings.theme === "system") {
-      const unwatch = watchSystemTheme(() => applyTheme("system"));
-      return unwatch;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!theme) return;
+    applyTheme(theme);
+    if (theme === "system") return watchSystemTheme(() => applyTheme("system"));
   }, [theme]);
+
+  // A hibernação pode ser ativada/desativada fora do app: reconsulta ao focar a janela.
+  useEffect(() => {
+    const onFocus = () => void refreshHibernate();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshHibernate]);
 
   // Ctrl+1..5 para trocar de aba
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key >= "1" && e.key <= "5") {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key >= "1" && e.key <= "5") {
         e.preventDefault();
-        const idx = Number(e.key) - 1;
-        if (idx < TABS.length) setTab(TABS[idx].key);
+        setTab(TABS[Number(e.key) - 1].key);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [setTab]);
 
-  if (!settings) {
+  if (!hasSettings) {
     return (
-      <>
-        <div className="window-shell items-center justify-center">
-          <p className="text-sm text-text-secondary">
-            {initError ? `Erro: ${initError}` : "Carregando…"}
-          </p>
+      <div className="window-shell">
+        <Titlebar />
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
+          {initError ? (
+            <>
+              <p className="text-sm text-danger select-text max-w-md">Não foi possível carregar o app: {initError}</p>
+              <button type="button" className="btn-primary" onClick={() => void retryInit()}>
+                <RefreshCw size={16} />
+                Tentar de novo
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-text-secondary dark:text-text-darkSecondary">Carregando…</p>
+          )}
         </div>
         <ToastContainer />
-      </>
+      </div>
     );
   }
 
-  const onTabKeyDown = (e: React.KeyboardEvent, currentIdx: number) => {
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = TABS[(currentIdx + 1) % TABS.length];
-      setTab(next.key);
-      document.getElementById(`tab-${next.key}`)?.focus();
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const prev = TABS[(currentIdx - 1 + TABS.length) % TABS.length];
-      setTab(prev.key);
-      document.getElementById(`tab-${prev.key}`)?.focus();
-    }
+  const onTabKeyDown = (e: React.KeyboardEvent, idx: number) => {
+    let next: number | null = null;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (idx + 1) % TABS.length;
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = (idx - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    setTab(TABS[next].key);
+    document.getElementById(`tab-${TABS[next].key}`)?.focus();
   };
 
   return (
@@ -115,61 +119,64 @@ export default function App() {
                      border-r border-stroke dark:border-stroke-dark
                      bg-white/40 dark:bg-black/20 backdrop-blur-md"
           role="tablist"
+          aria-orientation="vertical"
           aria-label="Navegação principal"
         >
           {TABS.map(({ key, label, icon: Icon }, idx) => (
             <button
               key={key}
               id={`tab-${key}`}
+              type="button"
               role="tab"
               aria-selected={tab === key}
               aria-controls={`panel-${key}`}
               tabIndex={tab === key ? 0 : -1}
               onClick={() => setTab(key)}
               onKeyDown={(e) => onTabKeyDown(e, idx)}
-              title={label}
+              title={`${label} (Ctrl+${idx + 1})`}
               className={`relative w-16 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
                 ${
                   tab === key
                     ? "bg-accent/20 text-accent"
-                    : "text-[#4A4A4A] dark:text-text-darkSecondary hover:bg-black/8 dark:hover:bg-white/12"
+                    : "text-[#4A4A4A] dark:text-text-darkSecondary hover:bg-black/[0.08] dark:hover:bg-white/[0.12]"
                 }`}
             >
               <Icon size={20} />
               <span className="text-[11px] font-medium">{label}</span>
-              {key === "home" && hasActiveSchedule && (
-                <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-accent ring-2 ring-white/50 dark:ring-black/30" />
+              {key === "tasks" && activeTasks > 0 && (
+                <span
+                  className="absolute top-1 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center"
+                  aria-label={`${activeTasks} tarefas ativas`}
+                >
+                  {activeTasks}
+                </span>
               )}
             </button>
           ))}
         </nav>
 
-        {/* Páginas mantidas montadas (preserva state ao navegar) */}
-        <main
-          className="flex-1 min-h-0 min-w-0 relative overflow-hidden"
-          role="tabpanel"
-          id={`panel-${tab}`}
-        >
-          {PANELS.map(({ key, Component }) => {
-            const isActive = tab === key;
-            return (
-              <div
-                key={key}
-                className={`absolute inset-0 flex flex-col min-h-0 overflow-hidden ${
-                  isActive
-                    ? "visible pointer-events-auto"
-                    : "invisible pointer-events-none"
-                }`}
-                aria-hidden={!isActive}
-              >
-                <Component />
-              </div>
-            );
-          })}
+        {/* Páginas mantidas montadas (preserva o estado dos formulários ao navegar) */}
+        <main className="flex-1 min-h-0 min-w-0 relative overflow-hidden">
+          {TABS.map(({ key, Component }) => (
+            <div
+              key={key}
+              id={`panel-${key}`}
+              role="tabpanel"
+              aria-labelledby={`tab-${key}`}
+              hidden={tab !== key}
+              className={`absolute inset-0 flex-col min-h-0 overflow-hidden ${tab === key ? "flex" : "hidden"}`}
+            >
+              <Component />
+            </div>
+          ))}
         </main>
       </div>
 
+      {/* Diálogos globais: aparecem em qualquer aba (bandeja, atalhos, tarefas). */}
+      <ConfirmDialog />
+      <QuitDialog />
+      <FinalWarning />
       <ToastContainer />
     </div>
   );

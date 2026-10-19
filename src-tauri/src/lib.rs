@@ -1,116 +1,155 @@
-//! Wise Auto Shutdown — lib principal (builder do Tauri).
+//! Easy Shutdown — lib principal (builder do Tauri).
 
+mod actions;
 mod commands;
+mod hotkey_rules;
+mod persist;
 mod power;
 mod schedule;
 mod settings;
 mod shortcuts;
 mod state;
 mod tray;
+mod trigger;
 mod types;
+mod window;
 
-use shortcuts::HotkeyMap;
 use state::AppState;
-use tauri::{Manager, WindowEvent};
+use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
-use types::ActionKind;
+
+/// Argumento usado pelo início automático com o Windows: abre direto na bandeja.
+const HIDDEN_ARG: &str = "--hidden";
+const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Log em arquivo (o app não tem console em produção).
+fn init_logging(app: &AppHandle) {
+    let file = app.path().app_log_dir().ok().and_then(|dir| {
+        std::fs::create_dir_all(&dir).ok()?;
+        let path = dir.join("easy-shutdown.log");
+        let too_big = std::fs::metadata(&path).map(|m| m.len() > LOG_MAX_BYTES).unwrap_or(false);
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(!too_big)
+            .write(true)
+            .truncate(too_big)
+            .open(path)
+            .ok()
+    });
+    let builder = tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).with_ansi(false);
+    let _ = match file {
+        Some(f) => builder.with_writer(std::sync::Mutex::new(f)).try_init(),
+        None => builder.try_init(),
+    };
+}
+
+fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
+    let app = window.app_handle();
+    let state = app.state::<AppState>();
+    let s = state.settings();
+    let pending = schedule::pending_count(app) > 0;
+    let tray_ok = state.is_tray_built();
+
+    if tray_ok && (s.minimize_to_tray || pending) {
+        api.prevent_close();
+        let _ = window.hide();
+        if !s.tray_hint_shown {
+            let body = if pending && !s.minimize_to_tray {
+                "O app continua na bandeja para executar as tarefas agendadas."
+            } else {
+                "O app continua rodando na bandeja. Clique no ícone para abrir ou use \"Sair\" no menu dele."
+            };
+            actions::notify(app, "Easy Shutdown", body);
+            let _ = settings::save(app, types::Settings { tray_hint_shown: true, ..s });
+        }
+    } else if pending {
+        // Sem bandeja não há como voltar a uma janela escondida: só minimiza.
+        api.prevent_close();
+        let _ = window.minimize();
+        tracing::warn!("fechamento impedido: há tarefas pendentes e a bandeja não existe");
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .try_init();
-
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            window::show_main(app);
+        }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![HIDDEN_ARG]),
         ))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            } else {
-                tracing::warn!("single-instance: janela 'main' não encontrada");
-            }
-        }))
         .manage(AppState::new())
-        .manage(shortcuts::new_map())
+        .manage(shortcuts::HotkeyRegistry::default())
         .setup(|app| {
-            // Tray icon (não-fatal)
-            let tray_result = tray::build_tray(app.handle());
-            if let Err(e) = &tray_result {
+            let handle = app.handle();
+            init_logging(handle);
+            tracing::info!("iniciando v{}", app.package_info().version);
+
+            if persist::migrate_legacy_data(handle) {
+                power::remove_legacy_autostart();
+            }
+            let s = settings::load(handle);
+            actions::load_history(handle);
+            schedule::load(handle);
+
+            window::apply_mica(handle);
+            window::apply_theme(handle, s.theme);
+
+            if let Err(e) = tray::build_tray(handle) {
                 tracing::warn!("falha ao criar tray icon: {e}");
             }
+            shortcuts::apply(handle);
 
-            // Carrega settings, registra hotkeys, sincroniza autostart
-            let s = settings::load(app.handle());
-
-            // Atualiza caches de settings
-            let app_state: tauri::State<'_, AppState> = app.state();
-            app_state.set_minimize_to_tray(s.minimize_to_tray);
-            app_state.set_confirm_before_action(s.confirm_before_action);
-
-            let map: HotkeyMap = app.state::<HotkeyMap>().inner().clone();
-            {
-                let mut guard = map.lock();
-                for (action_str, keys) in &s.hotkeys {
-                    if let Some(action) = ActionKind::from_kebab(action_str) {
-                        guard.insert(keys.clone(), action);
-                    }
-                }
-            }
-            let _ = shortcuts::register_all(app.handle(), map);
-
-            // Sincroniza autostart
-            if s.autostart {
-                let _ = app.autolaunch().enable();
-            } else {
-                let _ = app.autolaunch().disable();
+            // Sincroniza o registro do Windows (também regrava o argumento --hidden).
+            let r = if s.autostart { app.autolaunch().enable() } else { app.autolaunch().disable() };
+            if let Err(e) = r {
+                tracing::warn!("falha ao sincronizar autostart: {e}");
             }
 
+            let hidden = std::env::args().any(|a| a == HIDDEN_ARG);
+            if !hidden || !app.state::<AppState>().is_tray_built() {
+                window::show_main(handle);
+            }
+
+            tauri::async_runtime::spawn(schedule::run_engine(handle.clone()));
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
-                let state: tauri::State<'_, AppState> = app.state();
-                let minimize = state.get_minimize_to_tray();
-                let tray_ok = state.is_tray_built();
-                let has_schedule = schedule::has_active(app);
-
-                // Se há schedule ativo: sempre esconde (não fecha — schedule seria perdido)
-                // Se minimize_to_tray e tray_ok: esconde
-                // Se minimize_to_tray mas sem tray: não esconde (usuário não conseguiria voltar)
-                if has_schedule && !tray_ok {
-                    // Schedule ativo mas sem tray — mostra notificação em vez de esconder
-                    api.prevent_close();
-                    let _ = window.minimize();
-                    tracing::warn!("close impedido: schedule ativo sem tray, minimizando");
-                } else if (minimize && tray_ok) || has_schedule {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+                on_close_requested(window, api);
             }
         })
         .invoke_handler(tauri::generate_handler![
             commands::power_action,
-            commands::schedule_start,
-            commands::schedule_cancel,
-            commands::schedule_current,
+            commands::tasks_list,
+            commands::task_create,
+            commands::task_delete,
+            commands::task_set_enabled,
+            commands::task_snooze,
+            commands::task_skip_next,
+            commands::task_run_now,
+            commands::next_task,
+            commands::history_list,
+            commands::history_clear,
             commands::get_settings,
             commands::save_settings,
-            commands::set_autostart,
-            commands::is_autostart_enabled,
-            commands::register_hotkeys,
+            commands::reset_settings,
+            commands::hotkeys_status,
+            commands::hotkeys_suspend,
+            commands::hotkeys_resume,
             commands::test_notification,
             commands::check_hibernate,
-            commands::get_app_version,
+            commands::keep_awake_get,
+            commands::keep_awake_set,
+            commands::ui_info,
+            commands::open_logs_dir,
+            commands::app_quit,
         ])
         .run(tauri::generate_context!())
-        .expect("erro ao iniciar Wise Auto Shutdown");
+        .expect("erro ao iniciar Easy Shutdown");
 }

@@ -14,15 +14,25 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    /* Fallback sólido caso Mica não aplique (Win10 ou falha) */
-    background-color: #f3f3f3;
+    /* Transparente para o Mica (Win11) aparecer atrás da janela. */
+    background-color: transparent;
     font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
-  html.dark,
-  html.dark body {
+  /* Com Mica: véu leve para manter o contraste do texto. */
+  html.mica .window-shell {
+    background-color: rgba(243, 243, 243, 0.35);
+  }
+  html.dark.mica .window-shell {
+    background-color: rgba(32, 32, 32, 0.35);
+  }
+  /* Sem Mica (Windows 10 ou falha): fundo sólido no casco da janela. */
+  html:not(.mica) .window-shell {
+    background-color: #f3f3f3;
+  }
+  html.dark:not(.mica) .window-shell {
     background-color: #202020;
   }
 
@@ -44,8 +54,7 @@
 
 @layer components {
   .window-shell {
-    @apply h-full w-full flex flex-col overflow-hidden
-           bg-background/80 dark:bg-background-dark/80 backdrop-blur-xl;
+    @apply h-full w-full flex flex-col overflow-hidden;
     border-radius: 8px;
   }
 
@@ -73,12 +82,24 @@
     @apply btn bg-danger text-white hover:bg-danger-hover;
   }
 
-  .card {
-    @apply relative rounded-2xl p-5 transition-all duration-150 cursor-pointer
+  .card-shell {
+    @apply relative rounded-2xl transition-all duration-150
            border border-stroke dark:border-stroke-dark
            bg-card dark:bg-card-dark
            hover:bg-card-hover dark:hover:bg-card-darkHover
-           hover:shadow-fluentLg
+           hover:shadow-fluentLg;
+  }
+
+  .card-button {
+    @apply w-full h-full min-h-[168px] p-5 text-left rounded-2xl cursor-pointer
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
+           disabled:cursor-not-allowed;
+  }
+
+  .chip {
+    @apply px-3 py-2 text-sm rounded-lg font-medium transition-colors
+           bg-black/5 dark:bg-white/5 text-text-primary dark:text-text-darkPrimary
+           hover:bg-accent/10 hover:text-accent
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent;
   }
 

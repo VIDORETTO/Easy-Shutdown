@@ -1,117 +1,95 @@
-import { useEffect, useState, useRef } from "react";
-import { Power, Bell } from "lucide-react";
-import { useStore } from "@/store/useStore";
+import { useEffect, useState, type ReactNode } from "react";
+import { AlarmClock, Bell, Coffee, FolderOpen, Power, RotateCcw } from "lucide-react";
+import NumberField from "@/components/NumberField";
+import Toggle from "@/components/Toggle";
 import { api } from "@/lib/invoke";
-import { sanitizeInt } from "@/lib/format";
+import { useStore } from "@/store/useStore";
 import type { ThemeMode } from "@/types";
+
+const WARNING_OPTIONS = [
+  { value: 0, label: "Desativado" },
+  { value: 15, label: "15 segundos" },
+  { value: 30, label: "30 segundos" },
+  { value: 60, label: "1 minuto" },
+  { value: 120, label: "2 minutos" },
+  { value: 300, label: "5 minutos" },
+];
+
+function Row({
+  id,
+  icon,
+  title,
+  desc,
+  children,
+}: {
+  id?: string;
+  icon?: ReactNode;
+  title: string;
+  desc?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
+      <div className="flex items-center gap-3 min-w-0">
+        {icon}
+        <label htmlFor={id} className={id ? "cursor-pointer" : undefined}>
+          <span className="block text-sm font-medium text-text-primary dark:text-text-darkPrimary">{title}</span>
+          {desc && <span className="block text-xs text-text-secondary dark:text-text-darkSecondary">{desc}</span>}
+        </label>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export default function Settings() {
   const settings = useStore((s) => s.settings);
-  const saveSettings = useStore((s) => s.saveSettings);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const resetSettings = useStore((s) => s.resetSettings);
   const addToast = useStore((s) => s.addToast);
-  const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [autostartLoading, setAutostartLoading] = useState(true);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const settingsRef = useRef(settings);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
-  // Local state para input numérico (não sofre com debounce race)
-  const [reminderInput, setReminderInput] = useState(
-    settings?.default_reminder_minutes ?? 1
-  );
-  useEffect(() => {
-    setReminderInput(settings?.default_reminder_minutes ?? 1);
-  }, [settings?.default_reminder_minutes]);
+  const [confirmReset, setConfirmReset] = useState(false);
 
+  // O "clique de novo para confirmar" expira sozinho.
   useEffect(() => {
-    api.isAutostartEnabled().then(setAutostartEnabled).catch(() => {}).finally(() => setAutostartLoading(false));
-  }, []);
+    if (!confirmReset) return;
+    const t = setTimeout(() => setConfirmReset(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmReset]);
 
   if (!settings) return null;
 
-  // Usa settingsRef para evitar stale closure no debounce
-  const update = async (patch: Partial<typeof settings>) => {
-    try {
-      const next = { ...settingsRef.current!, ...patch };
-      await saveSettings(next);
-      settingsRef.current = next;
-    } catch {
-      // saveSettings já mostra toast
-    }
-  };
-
-  const updateDebounced = (patch: Partial<typeof settings>) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => update(patch), 500);
-  };
-
-  const toggleAutostart = async (enabled: boolean) => {
-    try {
-      await api.setAutostart(enabled);
-      setAutostartEnabled(enabled);
-      await update({ autostart: enabled });
-      addToast("success", `Iniciar com o Windows: ${enabled ? "ativado" : "desativado"}.`);
-    } catch (e) {
-      addToast("error", `Erro: ${e}`);
-    }
-  };
-
   return (
     <div className="page-scroll space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-text-primary dark:text-text-darkPrimary mb-1">
-          Configurações
-        </h2>
-      </div>
+      <h2 className="text-xl font-bold text-text-primary dark:text-text-darkPrimary">Ajustes</h2>
 
-      {/* Iniciar com o Windows */}
-      <div className="p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Power size={20} className="text-accent" />
-            <div>
-              <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">
-                Iniciar com o Windows
-              </p>
-              <p className="text-xs text-text-secondary dark:text-text-darkSecondary">
-                Abre o app automaticamente ao ligar o PC
-              </p>
-            </div>
-          </div>
-          <Toggle
-            checked={autostartEnabled}
-            loading={autostartLoading}
-            onChange={toggleAutostart}
-            ariaLabel="Iniciar com o Windows"
-          />
-        </div>
-      </div>
+      <Row
+        id="toggle-autostart"
+        icon={<Power size={20} className="text-accent shrink-0" />}
+        title="Iniciar com o Windows"
+        desc="Abre automaticamente, já minimizado na bandeja"
+      >
+        <Toggle
+          id="toggle-autostart"
+          checked={settings.autostart}
+          onChange={(v) => updateSettings({ autostart: v })}
+          ariaLabel="Iniciar com o Windows"
+        />
+      </Row>
 
-      {/* Minimizar para bandeja */}
-      <div className="p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
-        <div className="flex items-center justify-between">
-          <label htmlFor="toggle-minimize" className="cursor-pointer">
-            <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">
-              Minimizar para bandeja ao fechar
-            </p>
-            <p className="text-xs text-text-secondary dark:text-text-darkSecondary">
-              O botão &quot;X&quot; esconde a janela em vez de fechar o app
-            </p>
-          </label>
-          <Toggle
-            id="toggle-minimize"
-            checked={settings.minimize_to_tray}
-            onChange={(v) => update({ minimize_to_tray: v })}
-            ariaLabel="Minimizar para bandeja ao fechar"
-          />
-        </div>
-      </div>
+      <Row id="toggle-minimize" title="Minimizar para bandeja ao fechar" desc='O botão "X" esconde a janela em vez de fechar o app'>
+        <Toggle
+          id="toggle-minimize"
+          checked={settings.minimize_to_tray}
+          onChange={(v) => updateSettings({ minimize_to_tray: v })}
+          ariaLabel="Minimizar para bandeja ao fechar"
+        />
+      </Row>
 
-      {/* Tema */}
       <div className="p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
-        <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary mb-2">
+        <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary mb-2" id="theme-label">
           Tema
         </p>
-        <div className="flex gap-2" role="radiogroup" aria-label="Tema">
+        <div className="flex gap-2" role="radiogroup" aria-labelledby="theme-label">
           {(["system", "light", "dark"] as ThemeMode[]).map((t) => (
             <button
               key={t}
@@ -121,9 +99,9 @@ export default function Settings() {
               className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 settings.theme === t
                   ? "bg-accent text-white"
-                  : "bg-black/5 dark:bg-white/5 text-text-secondary dark:text-text-darkSecondary"
+                  : "bg-black/5 dark:bg-white/5 text-text-secondary dark:text-text-darkSecondary hover:bg-black/10 dark:hover:bg-white/10"
               }`}
-              onClick={() => update({ theme: t })}
+              onClick={() => updateSettings({ theme: t })}
             >
               {t === "system" ? "Sistema" : t === "light" ? "Claro" : "Escuro"}
             </button>
@@ -131,113 +109,103 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Confirmar antes de agir */}
-      <div className="p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
-        <div className="flex items-center justify-between">
-          <label htmlFor="toggle-confirm" className="cursor-pointer">
-            <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">
-              Sempre pedir confirmação
-            </p>
-            <p className="text-xs text-text-secondary dark:text-text-darkSecondary">
-              Mostra um diálogo antes de executar ações
-            </p>
-          </label>
-          <Toggle
-            id="toggle-confirm"
-            checked={settings.confirm_before_action}
-            onChange={(v) => update({ confirm_before_action: v })}
-            ariaLabel="Sempre pedir confirmação"
-          />
-        </div>
-      </div>
+      <Row id="toggle-confirm" title="Sempre pedir confirmação" desc="Vale para cliques no app, menu da bandeja e atalhos globais">
+        <Toggle
+          id="toggle-confirm"
+          checked={settings.confirm_before_action}
+          onChange={(v) => updateSettings({ confirm_before_action: v })}
+          ariaLabel="Sempre pedir confirmação"
+        />
+      </Row>
 
-      {/* Lembrete padrão */}
-      <div className="p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
-        <label htmlFor="settings-reminder" className="label">Lembrete padrão (minutos antes)</label>
-        <input
+      <Row
+        id="select-warning"
+        icon={<AlarmClock size={20} className="text-accent shrink-0" />}
+        title="Aviso na tela antes de executar"
+        desc="Contagem regressiva com Cancelar / Adiar, visível mesmo com o Não incomodar"
+      >
+        <select
+          id="select-warning"
+          className="input !w-40"
+          value={settings.final_warning_seconds}
+          onChange={(e) => updateSettings({ final_warning_seconds: Number(e.target.value) })}
+        >
+          {WARNING_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Row>
+
+      <Row
+        id="toggle-keepawake"
+        icon={<Coffee size={20} className="text-accent shrink-0" />}
+        title="Manter o PC acordado com tarefa pendente"
+        desc="Impede a suspensão automática enquanto houver tarefa única agendada (recorrentes não bloqueiam)"
+      >
+        <Toggle
+          id="toggle-keepawake"
+          checked={settings.keep_awake_during_tasks}
+          onChange={(v) => updateSettings({ keep_awake_during_tasks: v })}
+          ariaLabel="Manter o PC acordado com tarefa pendente"
+        />
+      </Row>
+
+      <Row id="settings-reminder" title="Lembrete padrão" desc="Minutos antes da tarefa (0 = sem lembrete)">
+        <NumberField
           id="settings-reminder"
-          type="number"
+          value={settings.default_reminder_minutes}
           min={0}
           max={120}
-          value={reminderInput}
-          onChange={(e) => {
-            const val = sanitizeInt(e.target.value, 0, 120);
-            setReminderInput(val);
-            updateDebounced({ default_reminder_minutes: val });
-          }}
-          onBlur={() => {
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-            update({ default_reminder_minutes: reminderInput });
-          }}
-          className="input mt-2"
+          onChange={(v) => updateSettings({ default_reminder_minutes: v })}
+          className="!w-24"
         />
-      </div>
+      </Row>
 
-      {/* Testar notificação */}
-      <div className="p-5 rounded-2xl bg-card dark:bg-card-dark border border-stroke dark:border-stroke-dark">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Bell size={20} className="text-accent" />
-            <div>
-              <p className="text-sm font-medium text-text-primary dark:text-text-darkPrimary">
-                Notificações
-              </p>
-              <p className="text-xs text-text-secondary dark:text-text-darkSecondary">
-                Teste se as notificações estão funcionando
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={async () => {
-              try {
-                await api.testNotification();
-                addToast("info", "Notificação enviada.");
-              } catch (e) {
-                addToast("error", `Erro: ${e}`);
-              }
-            }}
-          >
-            Testar
-          </button>
-        </div>
-      </div>
+      <Row icon={<Bell size={20} className="text-accent shrink-0" />} title="Notificações" desc="Teste se as notificações do Windows estão funcionando">
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={async () => {
+            try {
+              await api.testNotification();
+              addToast("info", "Notificação enviada.");
+            } catch (e) {
+              addToast("error", `Erro: ${e}`);
+            }
+          }}
+        >
+          Testar
+        </button>
+      </Row>
+
+      <Row icon={<FolderOpen size={20} className="text-accent shrink-0" />} title="Logs" desc="Arquivo de diagnóstico para relatar problemas">
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => api.openLogsDir().catch((e) => addToast("error", `Erro: ${e}`))}
+        >
+          Abrir pasta
+        </button>
+      </Row>
+
+      <Row icon={<RotateCcw size={20} className="text-danger shrink-0" />} title="Restaurar padrões" desc="Volta todas as configurações e remove os atalhos">
+        <button
+          type="button"
+          className={confirmReset ? "btn-danger" : "btn-ghost"}
+          onClick={() => {
+            if (confirmReset) {
+              setConfirmReset(false);
+              void resetSettings();
+            } else {
+              setConfirmReset(true);
+            }
+          }}
+        >
+          {confirmReset ? "Clique para confirmar" : "Restaurar"}
+        </button>
+      </Row>
     </div>
-  );
-}
-
-function Toggle({
-  id,
-  checked,
-  onChange,
-  loading,
-  ariaLabel,
-}: {
-  id?: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  loading?: boolean;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      disabled={loading}
-      onClick={() => onChange(!checked)}
-      className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
-        ${checked ? "bg-accent" : "bg-black/20 dark:bg-white/20"}`}
-    >
-      <span
-        className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-sm transition-transform ${
-          checked ? "translate-x-5" : ""
-        }`}
-      />
-    </button>
   );
 }

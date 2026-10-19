@@ -1,26 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Permissões principais da janela do Wise Auto Shutdown",
-  "windows": ["main"],
+  "description": "Permissões principais da janela do Easy Shutdown",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-close",
     "core:window:allow-minimize",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-set-focus",
-    "core:window:allow-start-dragging",
-    "core:window:allow-set-effects",
-    "core:window:allow-theme",
-    "core:window:allow-is-visible",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered",
-    "global-shortcut:allow-unregister-all",
-    "notification:default",
-    "autostart:default",
-    "opener:default",
-    "core:event:default"
+    "core:window:allow-start-dragging"
   ]
 }

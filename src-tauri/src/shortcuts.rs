@@ -1,162 +1,176 @@
 //! Registro de atalhos globais (hotkeys) via tauri-plugin-global-shortcut.
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use parking_lot::Mutex;
-use tauri::AppHandle;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-use tauri_plugin_notification::NotificationExt;
 
-use crate::power;
-use crate::types::ActionKind;
+use crate::actions::{self, notify};
+use crate::hotkey_rules::{self, Combo};
+use crate::schedule;
+use crate::state::AppState;
+use crate::types::{HotkeyStatus, HotkeyTarget, Source};
 
-/// Mapa compartilhado: keys string -> ActionKind
-pub type HotkeyMap = Arc<Mutex<HashMap<String, ActionKind>>>;
-
-pub fn new_map() -> HotkeyMap {
-    Arc::new(Mutex::new(HashMap::new()))
+#[derive(Default)]
+pub struct HotkeyRegistry {
+    status: Mutex<Vec<HotkeyStatus>>,
+    /// Durante a captura de um novo atalho tudo fica desregistrado — senão apertar
+    /// uma combinação já em uso executaria a ação.
+    suspended: AtomicBool,
 }
 
-/// Converte string "Ctrl+Alt+D" em `Shortcut { mods, key }`.
-pub fn parse(keys: &str) -> Result<Shortcut, String> {
-    let mut mods = Modifiers::empty();
-    let mut code: Option<Code> = None;
+fn to_code(key: &str) -> Option<Code> {
+    const LETTERS: [Code; 26] = [
+        Code::KeyA, Code::KeyB, Code::KeyC, Code::KeyD, Code::KeyE, Code::KeyF, Code::KeyG,
+        Code::KeyH, Code::KeyI, Code::KeyJ, Code::KeyK, Code::KeyL, Code::KeyM, Code::KeyN,
+        Code::KeyO, Code::KeyP, Code::KeyQ, Code::KeyR, Code::KeyS, Code::KeyT, Code::KeyU,
+        Code::KeyV, Code::KeyW, Code::KeyX, Code::KeyY, Code::KeyZ,
+    ];
+    const DIGITS: [Code; 10] = [
+        Code::Digit0, Code::Digit1, Code::Digit2, Code::Digit3, Code::Digit4, Code::Digit5,
+        Code::Digit6, Code::Digit7, Code::Digit8, Code::Digit9,
+    ];
+    const NUMPAD: [Code; 10] = [
+        Code::Numpad0, Code::Numpad1, Code::Numpad2, Code::Numpad3, Code::Numpad4,
+        Code::Numpad5, Code::Numpad6, Code::Numpad7, Code::Numpad8, Code::Numpad9,
+    ];
+    const FKEYS: [Code; 24] = [
+        Code::F1, Code::F2, Code::F3, Code::F4, Code::F5, Code::F6, Code::F7, Code::F8,
+        Code::F9, Code::F10, Code::F11, Code::F12, Code::F13, Code::F14, Code::F15, Code::F16,
+        Code::F17, Code::F18, Code::F19, Code::F20, Code::F21, Code::F22, Code::F23, Code::F24,
+    ];
 
-    for part in keys.split('+') {
-        let p = part.trim().to_lowercase();
-        match p.as_str() {
-            "ctrl" | "control" => mods |= Modifiers::CONTROL,
-            "alt" | "option" => mods |= Modifiers::ALT,
-            "shift" => mods |= Modifiers::SHIFT,
-            "win" | "super" | "meta" | "cmd" => mods |= Modifiers::SUPER,
-            _ => {
-                code = Some(parse_code(&p)?);
-            }
-        }
+    let c = key.chars().next()?;
+    if key.len() == 1 && c.is_ascii_lowercase() {
+        return Some(LETTERS[(c as u8 - b'a') as usize]);
     }
-
-    let code = code.ok_or_else(|| format!("nenhuma tecla encontrada em '{keys}'"))?;
-    Ok(Shortcut::new(Some(mods), code))
-}
-
-fn parse_code(s: &str) -> Result<Code, String> {
-    // Letras A-Z
-    if s.len() == 1 {
-        let c = s.chars().next().unwrap();
-        if c.is_ascii_alphabetic() {
-            return Ok(match c.to_ascii_uppercase() {
-                'A' => Code::KeyA,
-                'B' => Code::KeyB,
-                'C' => Code::KeyC,
-                'D' => Code::KeyD,
-                'E' => Code::KeyE,
-                'F' => Code::KeyF,
-                'G' => Code::KeyG,
-                'H' => Code::KeyH,
-                'I' => Code::KeyI,
-                'J' => Code::KeyJ,
-                'K' => Code::KeyK,
-                'L' => Code::KeyL,
-                'M' => Code::KeyM,
-                'N' => Code::KeyN,
-                'O' => Code::KeyO,
-                'P' => Code::KeyP,
-                'Q' => Code::KeyQ,
-                'R' => Code::KeyR,
-                'S' => Code::KeyS,
-                'T' => Code::KeyT,
-                'U' => Code::KeyU,
-                'V' => Code::KeyV,
-                'W' => Code::KeyW,
-                'X' => Code::KeyX,
-                'Y' => Code::KeyY,
-                'Z' => Code::KeyZ,
-                _ => return Err(format!("tecla não suportada: '{s}'")),
-            });
-        }
+    if key.len() == 1 && c.is_ascii_digit() {
+        return Some(DIGITS[(c as u8 - b'0') as usize]);
     }
-    // Números 0-9
-    if s.len() == 1 && s.chars().next().unwrap().is_ascii_digit() {
-        return Ok(match s {
-            "0" => Code::Digit0,
-            "1" => Code::Digit1,
-            "2" => Code::Digit2,
-            "3" => Code::Digit3,
-            "4" => Code::Digit4,
-            "5" => Code::Digit5,
-            "6" => Code::Digit6,
-            "7" => Code::Digit7,
-            "8" => Code::Digit8,
-            "9" => Code::Digit9,
-            _ => unreachable!(),
-        });
+    if let Some(d) = key.strip_prefix("num").and_then(|d| d.parse::<usize>().ok()) {
+        return NUMPAD.get(d).copied();
     }
-    // Teclas especiais comuns
-    Ok(match s {
-        "f1" => Code::F1,
-        "f2" => Code::F2,
-        "f3" => Code::F3,
-        "f4" => Code::F4,
-        "f5" => Code::F5,
-        "f6" => Code::F6,
-        "f7" => Code::F7,
-        "f8" => Code::F8,
-        "f9" => Code::F9,
-        "f10" => Code::F10,
-        "f11" => Code::F11,
-        "f12" => Code::F12,
-        "space" | "espaco" => Code::Space,
-        "enter" | "return" => Code::Enter,
-        "esc" | "escape" => Code::Escape,
+    if let Some(n) = key.strip_prefix('f').and_then(|n| n.parse::<usize>().ok()) {
+        return FKEYS.get(n.wrapping_sub(1)).copied();
+    }
+    Some(match key {
+        "space" => Code::Space,
+        "enter" => Code::Enter,
         "tab" => Code::Tab,
+        "esc" => Code::Escape,
         "home" => Code::Home,
         "end" => Code::End,
-        "delete" | "del" => Code::Delete,
+        "delete" => Code::Delete,
         "insert" => Code::Insert,
         "pageup" => Code::PageUp,
         "pagedown" => Code::PageDown,
-        "arrowup" | "up" => Code::ArrowUp,
-        "arrowdown" | "down" => Code::ArrowDown,
-        "arrowleft" | "left" => Code::ArrowLeft,
-        "arrowright" | "right" => Code::ArrowRight,
-        _ => return Err(format!("tecla não suportada: '{s}'")),
+        "up" => Code::ArrowUp,
+        "down" => Code::ArrowDown,
+        "left" => Code::ArrowLeft,
+        "right" => Code::ArrowRight,
+        _ => return None,
     })
 }
 
-/// Registra todos os hotkeys a partir do mapa compartilhado.
-/// Limpa registros anteriores primeiro.
-pub fn register_all(app: &AppHandle, map: HotkeyMap) -> Result<(), String> {
-    // Limpa registros anteriores
+fn to_shortcut(c: &Combo) -> Result<Shortcut, String> {
+    let mut mods = Modifiers::empty();
+    if c.ctrl {
+        mods |= Modifiers::CONTROL;
+    }
+    if c.alt {
+        mods |= Modifiers::ALT;
+    }
+    if c.shift {
+        mods |= Modifiers::SHIFT;
+    }
+    if c.win {
+        mods |= Modifiers::SUPER;
+    }
+    let code = to_code(&c.key).ok_or_else(|| format!("tecla não suportada: '{}'", c.key))?;
+    Ok(Shortcut::new(Some(mods), code))
+}
+
+fn on_pressed(app: &AppHandle, target: HotkeyTarget) {
+    tracing::info!("atalho disparado: {target:?}");
+    match target {
+        HotkeyTarget::Action(action) => actions::request(app, action, Source::Hotkey),
+        HotkeyTarget::CancelNext => match schedule::cancel_next(app) {
+            Ok(Some(msg)) => notify(app, "Easy Shutdown", msg),
+            Ok(None) => notify(app, "Easy Shutdown", "Nenhuma tarefa pendente."),
+            Err(e) => actions::notify_error(app, e),
+        },
+    }
+}
+
+/// (Re)registra todos os atalhos a partir das configurações e publica o status.
+pub fn apply(app: &AppHandle) {
+    let registry = app.state::<HotkeyRegistry>();
+    if registry.suspended.load(Ordering::Relaxed) {
+        return;
+    }
     if let Err(e) = app.global_shortcut().unregister_all() {
         tracing::warn!("unregister_all falhou: {e}");
     }
 
-    let snapshot = map.lock().clone();
-    for (keys, action) in snapshot {
-        let shortcut = match parse(&keys) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("atalho inválido '{keys}': {e}");
-                continue;
-            }
+    let settings = app.state::<AppState>().settings();
+    let mut seen: HashSet<Combo> = HashSet::new();
+    let mut statuses = Vec::new();
+
+    // Ordem fixa: em caso de duplicata, o primeiro da lista vence (determinístico).
+    for target in HotkeyTarget::all() {
+        let Some(keys) = settings.hotkeys.get(target.key()).filter(|k| !k.trim().is_empty()) else {
+            continue;
         };
-        let action_for_handler = action;
-        let result = app.global_shortcut().on_shortcut(shortcut, move |app, _sc, event| {
-            if event.state == ShortcutState::Pressed {
-                tracing::info!("hotkey disparado: {:?}", action_for_handler);
-                if let Err(e) = power::execute(action_for_handler, false) {
-                    tracing::error!("erro ao executar ação via hotkey: {e}");
-                    let _ = app.notification()
-                        .builder()
-                        .title("Wise Auto Shutdown — erro")
-                        .body(e)
-                        .show();
-                }
+        let mut status =
+            HotkeyStatus { target: target.key().into(), keys: keys.clone(), registered: false, error: None };
+
+        let result = (|| -> Result<(), String> {
+            if !settings.hotkeys_enabled {
+                return Err("Atalhos desativados nas configurações.".into());
             }
-        });
-        if let Err(e) = result {
-            tracing::warn!("falha ao registrar atalho '{keys}': {e}");
+            let combo = hotkey_rules::parse_combo(keys)?;
+            hotkey_rules::validate(&combo)?;
+            status.keys = hotkey_rules::display(&combo);
+            if !seen.insert(combo.clone()) {
+                return Err("Combinação repetida em outra ação.".into());
+            }
+            let shortcut = to_shortcut(&combo)?;
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |app, _sc, event| {
+                    if event.state == ShortcutState::Pressed {
+                        on_pressed(app, target);
+                    }
+                })
+                .map_err(|e| {
+                    tracing::warn!("falha ao registrar '{keys}': {e}");
+                    "O Windows recusou: a combinação já está em uso por outro programa.".to_string()
+                })
+        })();
+
+        match result {
+            Ok(()) => status.registered = true,
+            Err(e) => status.error = Some(e),
         }
+        statuses.push(status);
     }
-    Ok(())
+
+    *registry.status.lock() = statuses.clone();
+    let _ = app.emit("hotkeys-status", &statuses);
+}
+
+pub fn status(app: &AppHandle) -> Vec<HotkeyStatus> {
+    app.state::<HotkeyRegistry>().status.lock().clone()
+}
+
+pub fn suspend(app: &AppHandle) {
+    app.state::<HotkeyRegistry>().suspended.store(true, Ordering::Relaxed);
+    if let Err(e) = app.global_shortcut().unregister_all() {
+        tracing::warn!("unregister_all falhou: {e}");
+    }
+}
+
+pub fn resume(app: &AppHandle) {
+    app.state::<HotkeyRegistry>().suspended.store(false, Ordering::Relaxed);
+    apply(app);
 }

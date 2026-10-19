@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes do frontend
+        run: npm test
+
+      - name: Typecheck + build do frontend
+        run: npm run build
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Testes do backend
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Gerar instaladores (MSI + NSIS)
+        run: npm run tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instaladores
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe

@@ -1,198 +1,163 @@
 //! Ícone da bandeja do sistema com menu de ações rápidas.
 
+use std::sync::atomic::Ordering;
 use tauri::{
-    menu::{MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder},
+    menu::{CheckMenuItem, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager,
+    AppHandle, Emitter, Manager, Wry,
 };
-use tauri_plugin_notification::NotificationExt;
 
+use crate::actions::{self, notify, notify_error};
 use crate::power;
+use crate::schedule;
 use crate::state::AppState;
-use crate::types::ActionKind;
+use crate::types::{ActionKind, Source};
+use crate::window;
+
+const TRAY_ID: &str = "easy-tray";
+const QUICK_MINUTES: [u64; 5] = [15, 30, 60, 120, 180];
+
+/// Itens do menu que mudam de estado em tempo de execução.
+pub struct TrayHandles {
+    hibernate: MenuItem<Wry>,
+    snooze: MenuItem<Wry>,
+    cancel: MenuItem<Wry>,
+    keep_awake: CheckMenuItem<Wry>,
+}
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .unwrap_or_else(|| {
-            tracing::warn!("ícone padrão não encontrado, usando fallback embedado");
-            tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
-                .unwrap_or_else(|_| tauri::image::Image::new(&[255, 255, 255, 255], 1, 1))
-        });
+    let icon = app.default_window_icon().cloned().unwrap_or_else(|| {
+        tracing::warn!("ícone padrão não encontrado, usando fallback embedado");
+        tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
+            .unwrap_or_else(|_| tauri::image::Image::new(&[255, 255, 255, 255], 1, 1))
+    });
 
-    let show = MenuItem::with_id(app, "tray-show", "Mostrar", true, None::<&str>)?;
-    let sep1 = PredefinedMenuItem::separator(app)?;
-    let shutdown = MenuItem::with_id(app, "tray-shutdown", "Desligar", true, None::<&str>)?;
-    let restart = MenuItem::with_id(app, "tray-restart", "Reiniciar", true, None::<&str>)?;
-    let sleep = MenuItem::with_id(app, "tray-sleep", "Suspender", true, None::<&str>)?;
-    let hibernate = MenuItem::with_id(app, "tray-hibernate", "Hibernar", true, None::<&str>)?;
-    let lock = MenuItem::with_id(app, "tray-lock", "Bloquear", true, None::<&str>)?;
-    let logoff = MenuItem::with_id(app, "tray-logoff", "Encerrar sessão", true, None::<&str>)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
+    let mut menu = MenuBuilder::new(app)
+        .item(&MenuItem::with_id(app, "show", "Mostrar", true, None::<&str>)?)
+        .separator();
 
-    // Submenu: quick-schedule presets
-    let quick_schedule = SubmenuBuilder::with_id(app, "quick-schedule", "Agendar desligamento")
-        .item(&MenuItem::with_id(app, "qs-15", "em 15 min", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "qs-30", "em 30 min", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "qs-60", "em 1 hora", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "qs-120", "em 2 horas", true, None::<&str>)?)
+    let mut hibernate_item = None;
+    for action in ActionKind::ALL {
+        let item = MenuItem::with_id(app, format!("act-{}", action.key()), action.label_pt(), true, None::<&str>)?;
+        if action == ActionKind::Hibernate {
+            hibernate_item = Some(item.clone());
+        }
+        menu = menu.item(&item);
+    }
+
+    let mut quick = SubmenuBuilder::with_id(app, "quick-schedule", "Agendar desligamento");
+    for m in QUICK_MINUTES {
+        let label = if m < 60 { format!("em {m} min") } else if m == 60 { "em 1 hora".into() } else { format!("em {} horas", m / 60) };
+        quick = quick.item(&MenuItem::with_id(app, format!("qs-{m}"), label, true, None::<&str>)?);
+    }
+    let quick = quick.build()?;
+
+    let snooze = MenuItem::with_id(app, "next-snooze", "Adiar próxima tarefa (+15 min)", false, None::<&str>)?;
+    let cancel = MenuItem::with_id(app, "next-cancel", "Cancelar próxima tarefa", false, None::<&str>)?;
+    let keep_awake = CheckMenuItem::with_id(app, "keep-awake", "Manter PC acordado", true, false, None::<&str>)?;
+
+    let menu = menu
+        .separator()
+        .item(&quick)
+        .item(&snooze)
+        .item(&cancel)
+        .separator()
+        .item(&keep_awake)
+        .item(&PredefinedMenuItem::separator(app)?)
+        .item(&MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?)
         .build()?;
 
-    let sep3 = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "tray-quit", "Sair", true, None::<&str>)?;
+    let hibernate = hibernate_item.expect("item de hibernar criado no loop");
+    let _ = hibernate.set_enabled(power::hibernate_available());
 
-    let menu = MenuBuilder::new(app)
-        .item(&show)
-        .item(&sep1)
-        .item(&shutdown)
-        .item(&restart)
-        .item(&sleep)
-        .item(&hibernate)
-        .item(&lock)
-        .item(&logoff)
-        .item(&sep2)
-        .item(&quick_schedule)
-        .item(&sep3)
-        .item(&quit)
-        .build()?;
-
-    let _tray = TrayIconBuilder::with_id("wise-tray")
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("Wise Auto Shutdown")
+        .tooltip("Easy Shutdown")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            let id = event.id().as_ref();
-            // Quick-schedule presets
-            if let Some(minutes_str) = id.strip_prefix("qs-") {
-                if let Ok(minutes) = minutes_str.parse::<u64>() {
-                    start_quick_schedule(app, ActionKind::Shutdown, minutes);
-                }
-                return;
-            }
-
-            match id {
-                "tray-show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
-                "tray-quit" => {
-                    if crate::schedule::has_active(app) {
-                        let _ = app.notification().builder()
-                            .title("Wise Auto Shutdown")
-                            .body("Há um agendamento ativo. Cancele antes de sair.")
-                            .show();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    } else {
-                        app.exit(0);
-                    }
-                }
-                id_str @ ("tray-shutdown" | "tray-restart" | "tray-sleep" | "tray-hibernate" | "tray-lock" | "tray-logoff") => {
-                    let state: tauri::State<'_, AppState> = app.state();
-                    let confirm = state.get_confirm_before_action();
-                    let action = match id_str {
-                        "tray-shutdown" => ActionKind::Shutdown,
-                        "tray-restart" => ActionKind::Restart,
-                        "tray-sleep" => ActionKind::Sleep,
-                        "tray-hibernate" => ActionKind::Hibernate,
-                        "tray-lock" => ActionKind::Lock,
-                        "tray-logoff" => ActionKind::Logoff,
-                        _ => return,
-                    };
-                    if confirm {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            if let Err(e) = app.emit("tray-action-request", action) {
-                                tracing::error!("emit tray-action-request falhou: {e}");
-                            }
-                        } else {
-                            tracing::error!("janela não encontrada, executando sem confirmação");
-                            execute_with_notification(app, action, false);
-                        }
-                    } else {
-                        execute_with_notification(app, action, false);
-                    }
-                }
-                _ => {}
-            }
-        })
+        .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                window::toggle_main(tray.app_handle());
             }
         })
         .build(app)?;
 
-    let state: tauri::State<'_, AppState> = app.state();
-    state.set_tray_built(true);
-
+    app.manage(TrayHandles { hibernate, snooze, cancel, keep_awake });
+    app.state::<AppState>().tray_built.store(true, Ordering::Relaxed);
     Ok(())
 }
 
-/// Atualiza o tooltip do tray dinamicamente.
-pub fn update_tooltip(app: &AppHandle, text: Option<&str>) -> tauri::Result<()> {
-    if let Some(tray) = app.tray_by_id("wise-tray") {
-        let tooltip = text.unwrap_or("Wise Auto Shutdown");
-        tray.set_tooltip(Some(tooltip))?;
+fn on_menu(app: &AppHandle, id: &str) {
+    if let Some(minutes) = id.strip_prefix("qs-").and_then(|m| m.parse::<u64>().ok()) {
+        match schedule::quick_timer(app, ActionKind::Shutdown, minutes) {
+            Ok(_) => notify(app, "Easy Shutdown", format!("Desligamento agendado para daqui a {minutes} min.")),
+            Err(e) => notify_error(app, e),
+        }
+        return;
     }
-    Ok(())
+    if let Some(action) = id.strip_prefix("act-").and_then(ActionKind::from_key) {
+        actions::request(app, action, Source::Tray);
+        return;
+    }
+    match id {
+        "show" => window::show_main(app),
+        "next-snooze" => {
+            let Some(next) = schedule::next(app) else { return };
+            match schedule::snooze(app, &next.task_id, 15) {
+                Ok(_) => notify(app, "Easy Shutdown", format!("\"{}\" adiado em 15 min.", next.action.label_pt())),
+                Err(e) => notify_error(app, e),
+            }
+        }
+        "next-cancel" => match schedule::cancel_next(app) {
+            Ok(Some(msg)) => notify(app, "Easy Shutdown", msg),
+            Ok(None) => {}
+            Err(e) => notify_error(app, e),
+        },
+        "keep-awake" => {
+            let checked = app
+                .try_state::<TrayHandles>()
+                .and_then(|h| h.keep_awake.is_checked().ok())
+                .unwrap_or(false);
+            set_keep_awake_manual(app, checked);
+        }
+        "quit" => {
+            let pending = schedule::pending_count(app);
+            if pending > 0 {
+                window::show_main(app);
+                let _ = app.emit("quit-request", pending);
+            } else {
+                app.exit(0);
+            }
+        }
+        _ => {}
+    }
 }
 
-fn start_quick_schedule(app: &AppHandle, action: ActionKind, minutes: u64) {
-    use crate::schedule;
-    use crate::types::ScheduleMode;
-    use crate::types::ScheduleRequest;
+pub fn set_keep_awake_manual(app: &AppHandle, enabled: bool) {
+    let state = app.state::<AppState>();
+    state.keep_awake_manual.store(enabled, Ordering::Relaxed);
+    state.wake_engine();
+    let _ = app.emit("keep-awake-changed", enabled);
+}
 
-    let req = ScheduleRequest {
-        action,
-        mode: ScheduleMode::Timer { seconds: minutes * 60 },
-        force: false,
-        reminder_minutes: 1,
-    };
-
-    match schedule::start(app, req) {
-        Ok(_) => {
-            let _ = app.notification().builder()
-                .title("Wise Auto Shutdown")
-                .body(format!("{} agendado em {} min.", action.label_pt(), minutes))
-                .show();
-        }
-        Err(e) => {
-            let _ = app.notification().builder()
-                .title("Wise Auto Shutdown — erro")
-                .body(e)
-                .show();
-        }
+pub fn update_tooltip(app: &AppHandle, text: &str) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(text));
     }
 }
 
-fn execute_with_notification(app: &AppHandle, action: ActionKind, force: bool) {
-    if let Err(e) = power::execute(action, force) {
-        let _ = app
-            .notification()
-            .builder()
-            .title("Wise Auto Shutdown — erro")
-            .body(e)
-            .show();
+/// Atualiza itens dinâmicos do menu (chamado pelo motor quando algo muda).
+pub fn refresh(app: &AppHandle, has_next: bool, has_next_time: bool, keep_awake: bool) {
+    if let Some(h) = app.try_state::<TrayHandles>() {
+        let _ = h.cancel.set_enabled(has_next);
+        let _ = h.snooze.set_enabled(has_next_time);
+        let _ = h.keep_awake.set_checked(keep_awake);
+    }
+}
+
+pub fn refresh_hibernate(app: &AppHandle, available: bool) {
+    if let Some(h) = app.try_state::<TrayHandles>() {
+        let _ = h.hibernate.set_enabled(available);
     }
 }

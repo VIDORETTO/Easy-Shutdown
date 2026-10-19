@@ -17,13 +17,13 @@ export default function Titlebar() {
     >
       <div data-tauri-drag-region className="flex items-center gap-2.5">
         <div className="w-6 h-6 rounded-lg bg-accent flex items-center justify-center shadow-sm">
-          <span className="text-white text-xs font-bold">W</span>
+          <span className="text-white text-xs font-bold">E</span>
         </div>
         <span
           data-tauri-drag-region
           className="text-sm font-medium text-text-primary dark:text-text-darkPrimary"
         >
-          Wise Auto Shutdown
+          Easy Shutdown
         </span>
       </div>
 

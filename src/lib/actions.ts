@@ -8,9 +8,11 @@ import {
   ZapOff,
   Lock,
   LogOut,
+  MonitorOff,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
-import type { ActionKind } from "@/types";
+import type { ActionKind, HotkeyTarget } from "@/types";
 
 export interface ActionMeta {
   key: ActionKind;
@@ -23,6 +25,8 @@ export interface ActionMeta {
   helpText: string;
   helpCompare?: string;
   supportsForce: boolean;
+  /** Ações que fecham programas/desligam: usam botão vermelho na confirmação. */
+  destructive: boolean;
 }
 
 export const ACTIONS: ActionMeta[] = [
@@ -39,6 +43,7 @@ export const ACTIONS: ActionMeta[] = [
     helpCompare:
       'Diferente de "Encerrar sessão": aqui o PC desliga de vez. Diferente de "Hibernar": não salva o estado da RAM.',
     supportsForce: true,
+    destructive: true,
   },
   {
     key: "restart",
@@ -53,6 +58,7 @@ export const ACTIONS: ActionMeta[] = [
     helpCompare:
       'É como o "Desligar", mas o PC já liga sozinho após desligar.',
     supportsForce: true,
+    destructive: true,
   },
   {
     key: "sleep",
@@ -67,6 +73,7 @@ export const ACTIONS: ActionMeta[] = [
     helpCompare:
       '⚠ Se faltar energia, você perde o que não foi salvo. Para algo seguro contra falta de luz, use "Hibernar".',
     supportsForce: false,
+    destructive: false,
   },
   {
     key: "hibernate",
@@ -81,6 +88,7 @@ export const ACTIONS: ActionMeta[] = [
     helpCompare:
       '✅ Seguro contra falta de luz (diferente de "Suspender"). Pode estar desativado em alguns PCs — o app avisa se for o caso.',
     supportsForce: false,
+    destructive: true,
   },
   {
     key: "lock",
@@ -95,6 +103,7 @@ export const ACTIONS: ActionMeta[] = [
     helpCompare:
       'Diferente de "Encerrar sessão": no bloqueio, seus programas continuam abertos. No encerramento, eles fecham.',
     supportsForce: false,
+    destructive: false,
   },
   {
     key: "logoff",
@@ -108,7 +117,44 @@ export const ACTIONS: ActionMeta[] = [
       "Fecha TODOS os seus programas e volta para a tela de login. O PC continua ligado para outros usuários e serviços.",
     helpCompare:
       'Diferente de "Desligar": aqui o PC não desliga, só você sai da sua conta. Diferente de "Bloquear": aqui seus programas são fechados.',
+    supportsForce: true,
+    destructive: true,
+  },
+  {
+    key: "monitor_off",
+    label: "Desligar tela",
+    shortDesc: "Apaga o monitor, PC segue ligado",
+    icon: MonitorOff,
+    iconColor: "text-slate-500 dark:text-slate-300",
+    accentClass: "hover:border-slate-400/40",
+    helpTitle: "Desligar tela",
+    helpText:
+      "Apaga o(s) monitor(es) sem desligar nada. Downloads, músicas e programas continuam. Mexa o mouse ou aperte uma tecla para religar.",
+    helpCompare:
+      'Diferente de "Bloquear": não pede senha ao voltar. Combine com "Bloquear" se quiser privacidade.',
     supportsForce: false,
+    destructive: false,
+  },
+];
+
+/** Explicação mostrada quando a hibernação está desativada no PC. */
+export const HIBERNATE_DISABLED_HELP =
+  "A hibernação está desativada neste PC. Para ativar, abra o Terminal como administrador e rode: powercfg /hibernate on";
+
+export interface HotkeyTargetMeta {
+  key: HotkeyTarget;
+  label: string;
+  icon: LucideIcon;
+  iconColor: string;
+}
+
+export const HOTKEY_TARGETS: HotkeyTargetMeta[] = [
+  ...ACTIONS.map((a) => ({ key: a.key, label: a.label, icon: a.icon, iconColor: a.iconColor })),
+  {
+    key: "cancel_next",
+    label: "Cancelar próxima tarefa",
+    icon: XCircle,
+    iconColor: "text-danger dark:text-red-400",
   },
 ];
 

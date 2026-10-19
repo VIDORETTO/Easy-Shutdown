@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Wise Auto Shutdown",
-  "version": "0.1.0",
-  "identifier": "com.wise.autoshutdown",
+  "productName": "Easy Shutdown",
+  "version": "../package.json",
+  "identifier": "com.easyshutdown.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,11 +13,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "Wise Auto Shutdown",
+        "title": "Easy Shutdown",
         "width": 920,
-        "height": 760,
+        "height": 720,
         "resizable": true,
-        "minHeight": 640,
+        "minHeight": 560,
         "decorations": false,
         "transparent": true,
         "shadow": true,
@@ -25,7 +25,9 @@
         "minimizable": true,
         "maximizable": false,
         "alwaysOnTop": false,
-        "skipTaskbar": false
+        "skipTaskbar": false,
+        "minWidth": 720,
+        "visible": false
       }
     ],
     "security": {
@@ -36,7 +38,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "targets": [
+      "msi",
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -46,7 +51,7 @@
     ],
     "resources": [],
     "externalBin": [],
-    "copyright": "© 2025 Wise",
+    "copyright": "© 2025 Easy Shutdown",
     "category": "Utility",
     "shortDescription": "Gerencie desligamento, bloqueio, reinicio e suspensão",
     "longDescription": "App moderno para Windows 11 que facilita desligar, reiniciar, suspender, hibernar, bloquear e encerrar sessão — com agendamento, atalhos globais e bandeja do sistema.",
@@ -59,7 +64,9 @@
       },
       "nsis": {
         "displayLanguageSelector": false,
-        "languages": ["pt-BR"],
+        "languages": [
+          "pt-BR"
+        ],
         "installMode": "currentUser"
       }
     }

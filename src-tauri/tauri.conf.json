@@ -65,7 +65,7 @@
       "nsis": {
         "displayLanguageSelector": false,
         "languages": [
-          "pt-BR"
+          "PortugueseBR"
         ],
         "installMode": "currentUser"
       }
